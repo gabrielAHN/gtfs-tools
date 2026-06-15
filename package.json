@@ -1,7 +1,7 @@
 {
   "name": "@gabrielahn/gtfs-viz-cli",
   "version": "1.4.0",
-  "description": "Lightweight GTFS data visualizer and editor — CLI",
+  "description": "Lightweight GTFS data visualizer and editor — import, browse stations/stops/routes/pathways, edit connections, compare schedules, and export feeds from the terminal with DuckDB and a browser dashboard",
   "license": "MIT",
   "author": "Gabriel AHN",
   "repository": {
@@ -17,8 +17,12 @@
     "cli",
     "visualization",
     "stations",
+    "stops",
+    "routes",
     "pathways",
-    "accessibility"
+    "accessibility",
+    "schedules",
+    "export"
   ],
   "bin": {
     "gtfs-viz": "./dist/index.js"
