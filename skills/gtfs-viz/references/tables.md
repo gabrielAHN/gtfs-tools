@@ -17,6 +17,35 @@
 | location_type_name  | VARCHAR | Human name: Station, Stop, Exit/Entrance, etc. |
 | wheelchair_status   | VARCHAR | Emoji indicator                              |
 | level_id            | VARCHAR | Level identifier                             |
+| geom                | GEOMETRY | Point geometry (ST_Point(lon, lat))          |
+
+### routes
+
+| Column              | Type    | Description                                  |
+| ------------------- | ------- | -------------------------------------------- |
+| row_id              | INTEGER | Auto-generated row number                    |
+| route_id            | VARCHAR | Unique route identifier from GTFS            |
+| agency_id           | VARCHAR | Agency identifier                            |
+| route_short_name    | VARCHAR | Short route name (e.g. "M1")                 |
+| route_long_name     | VARCHAR | Full route name                              |
+| route_desc          | VARCHAR | Route description                            |
+| route_type          | INTEGER | GTFS route type (0-12)                       |
+| route_url           | VARCHAR | Route URL                                    |
+| route_color         | VARCHAR | Route color hex (no #)                       |
+| route_text_color    | VARCHAR | Route text color hex (no #)                  |
+| route_sort_order    | INTEGER | Sort order                                   |
+
+### shapes
+
+| Column              | Type    | Description                                  |
+| ------------------- | ------- | -------------------------------------------- |
+| row_id              | INTEGER | Auto-generated row number                    |
+| shape_id            | VARCHAR | Shape identifier                             |
+| shape_pt_lat        | DOUBLE  | Point latitude                               |
+| shape_pt_lon        | DOUBLE  | Point longitude                              |
+| shape_pt_sequence   | INTEGER | Point sequence number                        |
+| shape_dist_traveled | DOUBLE  | Distance traveled                            |
+| geom                | GEOMETRY | Point geometry (ST_Point(lon, lat))          |
 
 ### pathways
 
@@ -56,6 +85,40 @@ Combines `stops` with edits from `EditStopTable`. Edited/new rows override origi
 | level_id           | TEXT    |
 | wheelchair_status  | TEXT    |
 | status             | TEXT    |
+
+### RoutesView
+
+Combines `routes` with edits from `EditRouteTable`. Edited/new routes override originals; deleted routes are excluded.
+
+| Column              | Type    |
+| ------------------- | ------- |
+| row_id              | TEXT    |
+| route_id            | TEXT    |
+| route_short_name    | TEXT    |
+| route_long_name     | TEXT    |
+| route_type          | INTEGER |
+| route_name          | TEXT    |
+| route_type_name     | TEXT    |
+| route_color_hex     | TEXT    |
+| route_text_color_hex| TEXT    |
+| shape_points_json   | TEXT    |
+| status              | TEXT    |
+
+### RoutesTable
+
+Materialized table with route stop/trip counts.
+
+| Column              | Type    |
+| ------------------- | ------- |
+| *(all RoutesView)*  |         |
+| stop_count          | INTEGER |
+| station_count       | INTEGER |
+| shape_count         | INTEGER |
+| trip_count          | INTEGER |
+
+### TripsView
+
+Trips filtered to exclude deleted routes.
 
 ### PathwaysView
 

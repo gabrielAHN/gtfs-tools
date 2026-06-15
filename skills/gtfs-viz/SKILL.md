@@ -1,16 +1,16 @@
 ---
 name: gtfs-viz
-description: Import GTFS transit feeds, query station/stop/pathway data, edit connections and nodes, export changes to GTFS CSV, and open a local browser dashboard. Use when working with GTFS data, transit stations, pathways, or accessibility audits.
+description: Import GTFS transit feeds, query station/stop/pathway/route data, edit connections, nodes, and routes, compare trip service patterns, export changes to GTFS CSV, and open a local browser dashboard. Use when working with GTFS data, transit stations, pathways, routes, or accessibility audits.
 license: MIT
 compatibility: Requires Node.js 18+ and DuckDB CLI on PATH or DUCKDB_BIN
 metadata:
   author: gabrielahn
-  version: "1.3.0"
+  version: "1.4.0"
 ---
 
 # GTFS Viz CLI
 
-Import GTFS feeds, query transit data, edit stations/pathways, export changes, or open the local dashboard.
+Import GTFS feeds, query transit data, browse routes and service patterns, edit stations/pathways/routes, export changes, or open the local dashboard.
 
 ## Reference Files
 
@@ -111,7 +111,20 @@ gtfs-viz station_pathways place-pktrm --node-id node-pktrm-stair7-gl --data
 
 When checking for missing station pieces or broken internal connectivity, use station-part and network functions only. Start with `get_station_stops(station_id)`, then inspect `get_station_pathways(station_id)`, `get_station_routes(station_id)`, `find_shortest_path`, or `find_reachable_stops`. Do not audit station-internal connectivity from `StopsTable`, because that table is for standalone stops. See [references/gtfs-schedule-reference.md](references/gtfs-schedule-reference.md).
 
-## Routes
+## Service Routes
+
+```bash
+gtfs-viz routes                                   # List all routes
+gtfs-viz routes --type Bus                        # Filter by type
+gtfs-viz routes --route-name "Metro"              # Filter by name
+gtfs-viz routes --route-id ROUTE_ID               # Filter by ID
+gtfs-viz routes --dashboard --route map           # Open routes map
+gtfs-viz route "Line 1"                           # Open route info
+gtfs-viz route --route-id ROUTE_ID --data         # Print route data
+gtfs-viz route "Line 1" --route service           # Open service view
+```
+
+## Station Routes & Pathfinding
 
 ```bash
 gtfs-viz station_routes "South Station" --data
@@ -169,10 +182,11 @@ gtfs-viz edit_table
 Export edited GTFS data as CSV files. Merges edits with original data (same as the dashboard export).
 
 ```bash
-gtfs-viz export                           # Export stops.txt + pathways.txt
+gtfs-viz export                           # Export stops.txt + pathways.txt + routes.txt
 gtfs-viz export --output ./exported       # Export to specific directory
-gtfs-viz export --no-pathways             # Stops only
-gtfs-viz export --no-stops                # Pathways only
+gtfs-viz export --no-pathways             # Skip pathways.txt
+gtfs-viz export --no-stops                # Skip stops.txt
+gtfs-viz export --no-routes               # Skip routes.txt
 gtfs-viz export --force                   # Export even with no pending edits
 ```
 

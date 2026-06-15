@@ -96,6 +96,7 @@ const commandHelp: Record<string, string> = {
     --output <dir>        Output directory (default: current directory)
     --no-stops            Skip stops.txt export
     --no-pathways         Skip pathways.txt export
+    --no-routes           Skip routes.txt export
     --force               Export even if there are no pending edits`,
 
   station: `gtfs-viz station <name|id> [flags]
@@ -112,7 +113,7 @@ const commandHelp: Record<string, string> = {
     --name <name>           Alias for --station-name
     --data                  Print rows instead of opening dashboard
     --format json           Output as JSON
-    --route <route>         Dashboard route: info (default), map, table`,
+    --view <view>           Dashboard view: info (default), map, table`,
 
   "stop-info": `gtfs-viz stop-info <name|id> [flags]
 
@@ -128,7 +129,7 @@ const commandHelp: Record<string, string> = {
     --name <name>         Alias for --stop-name
     --data                Print rows instead of opening dashboard
     --format json         Output as JSON
-    --route <route>       Dashboard route: map (default), table`,
+    --view <view>         Dashboard view: map (default), table`,
 
   station_connections: `gtfs-viz station_connections <name|id> [flags]
 
@@ -139,7 +140,7 @@ const commandHelp: Record<string, string> = {
     --id <id>               Alias for --station-id
     --data                  Print rows instead of opening dashboard
     --format json           Output as JSON
-    --route <route>         Pathway view: flow (default), map, table, end`,
+    --view <view>           Pathway view: flow (default), map, table, end`,
 
   station_pathways: `gtfs-viz station_pathways <name|id> [flags]
 
@@ -151,7 +152,7 @@ const commandHelp: Record<string, string> = {
     --stop-id <id>          Resolve a standalone stop
     --data                  Print rows instead of opening dashboard
     --format json           Output as JSON
-    --route <route>         Pathway view: flow (default), map, table, end`,
+    --view <view>           Pathway view: flow (default), map, table, end`,
 
   station_routes: `gtfs-viz station_routes <name|id> [flags]
 
@@ -182,7 +183,7 @@ const commandHelp: Record<string, string> = {
     --station-id <id>       Select station by exact ID
     --node-id <id>          Focus on a station part
     --data                  Print pathway data instead
-    --route <route>         Pathway view: flow (default), map, table, end`,
+    --view <view>           Pathway view: flow (default), map, table, end`,
 
   edit_stop: `gtfs-viz edit_stop <name|id> [flags]
 
@@ -194,14 +195,15 @@ const commandHelp: Record<string, string> = {
     --stop-id <id>          Resolve a standalone stop
     --data                  Print stop data instead`,
 
-  edit_table: `gtfs-viz edit_table [pathways|stops] [flags]
+  edit_table: `gtfs-viz edit_table [pathways|routes|stops] [flags]
 
   Show edit tracking tables.
 
   Arguments:
     pathways              Show EditPathwayTable
+    routes                Show EditRouteTable
     stops                 Show EditStopTable
-    (none)                Show both
+    (none)                Show all
 
   Flags:
     --format json         Output as JSON`,
@@ -284,35 +286,106 @@ const commandHelp: Record<string, string> = {
   Flags:
     --stop-id <id>    Node to delete (required)`,
 
-  stations: `gtfs-viz stations [flags]
+  stations: `gtfs-viz stations [<id>] [flags]
 
-  Show stations table with optional filters.
+  Browse stations, or select one by ID/name. Opens dashboard by default.
 
-  Filter flags:
-    --station-id <id>       Filter by exact station ID
-    --name <name>           Filter by name (partial match, case-insensitive)
-    --wheelchair <status>   Filter by wheelchair status emoji
-    --pathways <status>     Filter by pathways status emoji
+  Filters:
+    --id <id>               Exact station ID
+    --name <name>           Name (partial match)
+    --wheelchair <status>   Wheelchair status emoji
+    --pathways <status>     Pathways status emoji
 
-  Output flags:
-    --dashboard             Open dashboard instead of printing
-    --route <route>         Dashboard route: map (default), table
-    --format json           Output as JSON`,
+  Output:
+    (default)               Open in browser dashboard
+    --data                  Print rows in terminal
+    --format json           JSON output
+    --url                   Open dashboard and print URL
+    --url-only              Print URL without opening
+    --view <view>           map (default), table`,
 
-  stops: `gtfs-viz stops [flags]
+  stops: `gtfs-viz stops [<id>] [flags]
 
-  Show standalone stops table with optional filters.
+  Browse stops, or select one by ID/name. Opens dashboard by default.
 
-  Filter flags:
-    --stop-id <id>          Filter by exact stop ID
-    --name <name>           Filter by name (partial match, case-insensitive)
-    --wheelchair <status>   Filter by wheelchair status emoji
-    --location-type <type>  Filter by location type
+  Filters:
+    --id <id>               Exact stop ID
+    --name <name>           Name (partial match)
+    --wheelchair <status>   Wheelchair status emoji
+    --location-type <type>  Location type
 
-  Output flags:
-    --dashboard             Open dashboard instead of printing
-    --route <route>         Dashboard route: map (default), table
-    --format json           Output as JSON`,
+  Output:
+    (default)               Open in browser dashboard
+    --data                  Print rows in terminal
+    --format json           JSON output
+    --url                   Open dashboard and print URL
+    --url-only              Print URL without opening
+    --view <view>           map (default), table`,
+
+  routes: `gtfs-viz routes [<id>] [flags]
+
+  Browse routes, or select one by ID/name. Opens dashboard by default.
+
+  Filters:
+    --id <id>               Exact route ID
+    --name <name>           Route name (partial match)
+    --type <type>           Route type (name or number)
+
+  Output:
+    (default)               Open in browser dashboard
+    --data                  Print rows in terminal
+    --format json           JSON output
+    --url                   Open dashboard and print URL
+    --url-only              Print URL without opening
+    --view <view>           Dashboard view (use -h with --view for details)
+
+  Views:
+    map                     Route shapes on map (default for list)
+    table                   Tabular route list
+    info                    Route details (default when --id given)
+    service                 Trip/service schedule (use -h for subflags)`,
+
+  "routes:service": `gtfs-viz routes --id <id> --view service [flags]
+  gtfs-viz route <name|id> --view service [flags]
+
+  Show route service and trip schedule. Opens dashboard by default.
+
+  Flags:
+    --service-id <id>       Select a specific service
+    --service <id>          Alias for --service-id
+    --trip-id <id>          Select a specific trip
+    --trip <id>             Alias for --trip-id
+    --compare <t1,t2,...>   Compare trips side-by-side (max 5, with --data)
+    --data                  Print service/trip data in terminal
+    --format json           JSON output
+
+  Examples:
+    gtfs-viz route "Red Line" service
+    gtfs-viz route "Red Line" --service weekday-1 --data
+    gtfs-viz route "Red Line" --trip trip-456 --data
+    gtfs-viz route "Red Line" --compare trip-1,trip-2 --data
+    gtfs-viz routes --id R1 --view service --format json`,
+
+  route: `gtfs-viz route <name|id> [flags]
+
+  Show route info in the dashboard, or print route data.
+
+  Arguments:
+    <name|id>               Route name or ID (positional)
+
+  Flags:
+    --data                  Print rows in terminal
+    --format json           JSON output
+    --view <view>           Dashboard view (use -h with --view for details)
+    --service-id <id>       Select service (with --view service)
+    --trip-id <id>          Select trip (with --view service)
+    --compare <t1,t2,...>   Compare trips side-by-side (max 5, with --data)
+
+  Views:
+    info                    Route details (default)
+    map                     Route on map
+    table                   Tabular view
+    service                 Trip/service schedule`,
 
   query: `gtfs-viz query [flags]
 
@@ -327,20 +400,23 @@ const commandHelp: Record<string, string> = {
 
   Named queries: stations, stops, station-info, station-stops,
     station-pathways, station-connections, pathway-aggregates,
-    station-routes, edit-pathways, edit-stops`,
+    station-routes, routes, route-info, route-stops, route-stations,
+    route-shapes, station-service-routes, stop-service-routes,
+    edit-pathways, edit-stops`,
 
   view: `gtfs-viz view [flags]
 
   Open a dashboard view in the browser.
 
   Flags:
-    --view <route>          Dashboard view (default: auto)
+    --view <page>           Dashboard view (default: auto)
     --station-id <id>       Select a station
     --stop-id <id>          Select a stop
     --map-focus <v>         Map center: lat,lon,zoom
     --node-id <id>          Focus on a station part
 
-  Views: auto, stations/info, stations/map, stations/table,
+  Views: auto, routes/map, routes/table, routes/info, routes/service,
+    stations/info, stations/map, stations/table,
     stations/pathways/flow/radial, stations/pathways/map/directional,
     stations/pathways/table/start, stations/pathways/table/end,
     stops/map, stops/table`,
@@ -365,7 +441,6 @@ const commandAliases: Record<string, string> = {
   "station-routes": "station_routes",
   "station-shortest-route": "station_shortest_route",
   pathways: "station_pathways",
-  routes: "station_routes",
   "shortest-route": "station_shortest_route",
   "edit-pathway": "edit_pathway",
   "edit-stop": "edit_stop",
@@ -379,6 +454,10 @@ const commandAliases: Record<string, string> = {
   stop_info: "stop-info",
   open: "view",
   dashboard: "view",
+  "route:service": "routes:service",
+  "route:map": "routes",
+  "route:table": "routes",
+  "route:info": "route",
 };
 
 export const printCommandHelp = (command: string): boolean => {
@@ -399,48 +478,27 @@ Import & Status:
   status                             Show dataset info and session state
   tables                             List available DuckDB tables
 
-Browse:
-  stations [--name --wheelchair --pathways --station-id]
-  stops    [--name --wheelchair --location-type --stop-id]
+Data:
+  stations [filters]                 Browse/lookup stations
+  stops [filters]                    Browse/lookup stops
+  routes [filters]                   Browse/lookup routes
 
-Lookup:
-  station <name|id>                  Open station info
-  stop-info <name|id>                Open stop map with popup
+Edit:
+  edit_table [pathways|routes|stops] Show edit tracking tables
+  export [--output --no-stops --no-pathways --no-routes --force]
 
-Pathways:
-  station_connections <name|id>      Connection flow graph
-  station_pathways <name|id>         Station parts and pathways
-  station_routes <name|id>           Timed routes between parts
-  station_shortest_route <name|id>   Fastest entrance-to-exit route
-
-Edit (CLI):
-  add_connection [flags]             Add a pathway connection
-  update_connection [flags]          Update a pathway connection
-  delete_connection [flags]          Delete a pathway connection
-  add_node [flags]                   Add a stop/station part
-  update_node [flags]                Update a stop/station part
-  delete_node [flags]                Delete a stop/station part
-
-Edit (Dashboard):
-  edit_pathway <name|id>             Open pathway edit form
-  edit_stop <name|id>                Open stop/node edit form
-  edit_table [pathways|stops]        Show edit tracking tables
-
-Export & Query:
-  export [--output --no-stops --no-pathways --force]
+Query:
   query --sql <sql>                  Run SQL
   query --name <name> [--data]       Named query
 
 Session:
-  view [--view <route>]              Open dashboard view
-  stop                               Stop dashboard session and clear session state
+  view [--view <page>]               Open dashboard view
+  stop                               Stop dashboard session
   restart                            Stop session + remove local import
   clean                              Stop daemon + remove all data
-  install-skill                      Install agent skills
-  examples                           Show usage examples
 
-Global flags: --data, --format json, --dashboard, --route <view>
-Run gtfs-viz help <command> for details on any command.`);
+Global flags: --data, --format json, --url-only, --view <view>
+Run gtfs-viz help <command> for details. Use -h with --view for view-specific flags.`);
 };
 
 export const printExamples = () => {
@@ -451,12 +509,16 @@ export const printExamples = () => {
   gtfs-viz stations --name "Park" --pathways "✅"
   gtfs-viz stations --format json
   gtfs-viz stops --name "Albany"
+  gtfs-viz routes --type Bus
+  gtfs-viz route "Red Line"
 
 Lookup & dashboard:
   gtfs-viz station "Park Street"
   gtfs-viz station --id place-pktrm --data
   gtfs-viz stop-info --stop-id 10011
-  gtfs-viz stations --dashboard --route map
+  gtfs-viz route --id Red --data
+  gtfs-viz stations --view map
+  gtfs-viz route "Red Line" --view service --data
   gtfs-viz view --view stops/map --map-focus 42.355,-71.06,12
 
 Pathways & routes:
@@ -480,7 +542,7 @@ Edit nodes:
 
 Export:
   gtfs-viz export
-  gtfs-viz export --output ./exported --no-pathways
+  gtfs-viz export --output ./exported --no-pathways --no-routes
   gtfs-viz export --force
 
 SQL:

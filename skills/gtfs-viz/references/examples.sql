@@ -71,9 +71,44 @@ SELECT pathway_id, from_stop_id, to_stop_id, pathway_mode_name
 FROM PathwaysView
 WHERE traversal_time IS NULL;
 
+-- ============================================================================
+-- Route queries
+-- ============================================================================
+
+-- List all routes
+SELECT route_id, route_name, route_type_name, stop_count, trip_count
+FROM RoutesTable
+ORDER BY route_name;
+
+-- Filter routes by type
+SELECT route_id, route_name, route_type_name
+FROM RoutesTable
+WHERE route_type_name = 'Bus'
+ORDER BY route_name;
+
+-- Get route map bounds (uses spatial extension)
+SELECT * FROM get_route_map_bounds(['ROUTE_ID_1', 'ROUTE_ID_2']);
+
+-- Get routes serving a station
+SELECT route_id, route_name, route_type_name
+FROM get_station_service_routes('place-pktrm');
+
+-- Get routes serving a stop
+SELECT route_id, route_name, route_type_name
+FROM get_stop_service_routes('10011');
+
+-- Route services (calendar data)
+SELECT service_id, monday, tuesday, wednesday, thursday, friday,
+       saturday, sunday, start_date, end_date
+FROM calendar
+WHERE service_id IN (
+  SELECT DISTINCT service_id FROM TripsView WHERE route_id = 'ROUTE_ID'
+);
+
 -- View pending edits
 SELECT * FROM EditStopTable;
 SELECT * FROM EditPathwayTable;
+SELECT * FROM EditRouteTable;
 
 -- Count stops by location type
 SELECT location_type_name, COUNT(*) as count

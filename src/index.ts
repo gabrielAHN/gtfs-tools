@@ -64,6 +64,11 @@ const supportedViews = new Set([
   "stations/pathways/table/start",
   "stations/pathways/table/end",
   "stations/table",
+  "routes/info",
+  "routes/map",
+  "routes/service",
+  "routes/table",
+  "routes/trips",
   "stops/map",
   "stops/table",
 ]);
@@ -155,6 +160,13 @@ const refreshPathwayNetwork = async (dbPath: string) => {
            COALESCE(NULLIF(s1.parent_station, ''), s1.stop_id) = station_id
            AND COALESCE(NULLIF(s2.parent_station, ''), s2.stop_id) = station_id
          )
+       ),
+       route_counts AS (
+         SELECT
+           COUNT(DISTINCT rsv.route_id) AS route_count,
+           STRING_AGG(DISTINCT rsv.route_id || '|||' || rsv.route_name || '|||' || rsv.route_color_hex || '|||' || rsv.route_text_color_hex, '\n') AS route_links
+         FROM RouteStopsView rsv
+         WHERE rsv.station_id = station_id
        )
        SELECT
          s.row_id,
@@ -168,6 +180,8 @@ const refreshPathwayNetwork = async (dbPath: string) => {
          s.parent_station,
          s.wheelchair_status,
          COALESCE(pc.pathway_count, 0) AS pathway_count,
+         COALESCE(rc.route_count, 0) AS route_count,
+         COALESCE(rc.route_links, '') AS route_links,
          CASE
            WHEN COALESCE(pc.pathway_count, 0) = 0 THEN '❌'
            WHEN COALESCE(pc.pathway_count, 0) > 0 THEN '✅'
@@ -179,6 +193,7 @@ const refreshPathwayNetwork = async (dbPath: string) => {
        FROM station_base s
        CROSS JOIN exit_counts e
        CROSS JOIN pathway_counts pc
+       CROSS JOIN route_counts rc
      )`,
   );
 };
@@ -373,6 +388,12 @@ const importDataset = async (feedArg: string) => {
   const entries = await listZipEntries(feedPath);
   const stopsEntry = findGtfsEntry(entries, "stops.txt");
   const pathwaysEntry = findGtfsEntry(entries, "pathways.txt");
+  const routesEntry = findGtfsEntry(entries, "routes.txt");
+  const tripsEntry = findGtfsEntry(entries, "trips.txt");
+  const stopTimesEntry = findGtfsEntry(entries, "stop_times.txt");
+  const shapesEntry = findGtfsEntry(entries, "shapes.txt");
+  const calendarEntry = findGtfsEntry(entries, "calendar.txt");
+  const calendarDatesEntry = findGtfsEntry(entries, "calendar_dates.txt");
   if (!stopsEntry) throw new Error("GTFS zip is missing required stops.txt");
 
   await rm(currentDataDir, { recursive: true, force: true });
@@ -381,17 +402,42 @@ const importDataset = async (feedArg: string) => {
 
   const stopsPath = path.join(currentExtractDir, "stops.txt");
   const pathwaysPath = pathwaysEntry ? path.join(currentExtractDir, "pathways.txt") : undefined;
+  const routesPath = routesEntry ? path.join(currentExtractDir, "routes.txt") : undefined;
+  const tripsPath = tripsEntry ? path.join(currentExtractDir, "trips.txt") : undefined;
+  const stopTimesPath = stopTimesEntry ? path.join(currentExtractDir, "stop_times.txt") : undefined;
+  const shapesPath = shapesEntry ? path.join(currentExtractDir, "shapes.txt") : undefined;
+  const calendarPath = calendarEntry ? path.join(currentExtractDir, "calendar.txt") : undefined;
+  const calendarDatesPath = calendarDatesEntry
+    ? path.join(currentExtractDir, "calendar_dates.txt")
+    : undefined;
   await extractZipEntry(feedPath, stopsEntry, stopsPath);
   if (pathwaysEntry && pathwaysPath) await extractZipEntry(feedPath, pathwaysEntry, pathwaysPath);
+  if (routesEntry && routesPath) await extractZipEntry(feedPath, routesEntry, routesPath);
+  if (tripsEntry && tripsPath) await extractZipEntry(feedPath, tripsEntry, tripsPath);
+  if (stopTimesEntry && stopTimesPath)
+    await extractZipEntry(feedPath, stopTimesEntry, stopTimesPath);
+  if (shapesEntry && shapesPath) await extractZipEntry(feedPath, shapesEntry, shapesPath);
+  if (calendarEntry && calendarPath) await extractZipEntry(feedPath, calendarEntry, calendarPath);
+  if (calendarDatesEntry && calendarDatesPath)
+    await extractZipEntry(feedPath, calendarDatesEntry, calendarDatesPath);
 
-  const importSqlContent = await buildImportSql({ stopsPath, pathwaysPath });
+  const importSqlContent = await buildImportSql({
+    stopsPath,
+    pathwaysPath,
+    routesPath,
+    tripsPath,
+    stopTimesPath,
+    shapesPath,
+    calendarPath,
+    calendarDatesPath,
+  });
   const importSqlPath = path.join(currentDataDir, "import.sql");
   await writeFile(importSqlPath, importSqlContent);
   await executeSqlFile(currentDbPath, importSqlPath);
 
   const [counts] = await queryRows(
     currentDbPath,
-    `SELECT (SELECT COUNT(*) FROM StopsTable) AS stops, (SELECT COUNT(*) FROM StationsTable) AS stations, (SELECT COUNT(*) FROM pathways) AS pathways`,
+    `SELECT (SELECT COUNT(*) FROM StopsTable) AS stops, (SELECT COUNT(*) FROM StationsTable) AS stations, (SELECT COUNT(*) FROM pathways) AS pathways, (SELECT COUNT(*) FROM RoutesTable) AS routes`,
   );
 
   const metadata: DatasetMetadata = {
@@ -406,6 +452,7 @@ const importDataset = async (feedArg: string) => {
       stops: Number(counts?.stops || 0),
       stations: Number(counts?.stations || 0),
       pathways: Number(counts?.pathways || 0),
+      routes: Number(counts?.routes || 0),
     },
   };
   await writeDatasetState(metadata);
@@ -498,14 +545,21 @@ async function navigateDaemon(daemon: DaemonMetadata, targetUrl: string): Promis
   });
 }
 
-async function openDashboardView(view: string, params: Record<string, string>): Promise<void> {
+let _urlOnlyMode = false;
+
+async function openDashboardView(
+  view: string,
+  params: Record<string, string>,
+): Promise<void> {
   const { daemon, fresh } = await ensureDaemon();
   const url = buildDashboardUrl(`http://127.0.0.1:${daemon.port}`, daemon.sessionId, view, params);
 
-  if (fresh) {
-    openBrowser(url);
-  } else {
-    await navigateDaemon(daemon, url);
+  if (!_urlOnlyMode) {
+    if (fresh) {
+      openBrowser(url);
+    } else {
+      await navigateDaemon(daemon, url);
+    }
   }
 
   console.log(url);
@@ -583,7 +637,7 @@ async function runDaemon(): Promise<void> {
 }
 
 async function resolveStationFromArgs(args: Args): Promise<{ stopId: string; stopName?: string }> {
-  const positional = args.positionals.join(" ").trim();
+  const positional = args.positionals.filter((p) => !VIEW_NAMES.has(p)).join(" ").trim();
   const flags = { ...args.flags };
   const id = getFlagString(flags, "id") || getFlagString(flags, "station-id");
   const name = getFlagString(flags, "name") || getFlagString(flags, "station-name");
@@ -598,7 +652,7 @@ async function resolveStationFromArgs(args: Args): Promise<{ stopId: string; sto
 }
 
 async function resolveStopFromArgs(args: Args): Promise<{ stopId: string; stopName?: string }> {
-  const positional = args.positionals.join(" ").trim();
+  const positional = args.positionals.filter((p) => !VIEW_NAMES.has(p)).join(" ").trim();
   const flags = { ...args.flags };
   const id = getFlagString(flags, "id") || getFlagString(flags, "stop-id");
   const name = getFlagString(flags, "name") || getFlagString(flags, "stop-name");
@@ -612,8 +666,76 @@ async function resolveStopFromArgs(args: Args): Promise<{ stopId: string; stopNa
   return resolveSelection(ds.dbPath, "StopsTable", si);
 }
 
+const getServiceRouteSelectionInput = (flags: Record<string, string | boolean>) =>
+  getSelectionInput(flags, [
+    ["route-id", "id"],
+    ["route-name", "name"],
+    ["selected-route", "any"],
+  ]);
+
+const routeSelectionExpressions = (input: SelectionInput) => {
+  const value = sqlString(input.value);
+  const iId = input.mode !== "name";
+  const iNm = input.mode !== "id";
+  return {
+    idE: iId ? `route_id = ${value}` : "FALSE",
+    idL: iId ? `LOWER(route_id) = LOWER(${value})` : "FALSE",
+    nmE: iNm
+      ? `(route_name = ${value} OR route_short_name = ${value} OR route_long_name = ${value})`
+      : "FALSE",
+    nmL: iNm
+      ? `(LOWER(route_name) = LOWER(${value}) OR LOWER(route_short_name) = LOWER(${value}) OR LOWER(route_long_name) = LOWER(${value}))`
+      : "FALSE",
+    idC: iId ? `LOWER(route_id) LIKE '%' || LOWER(${value}) || '%'` : "FALSE",
+    nmC: iNm
+      ? `(LOWER(route_name) LIKE '%' || LOWER(${value}) || '%' OR LOWER(route_short_name) LIKE '%' || LOWER(${value}) || '%' OR LOWER(route_long_name) LIKE '%' || LOWER(${value}) || '%')`
+      : "FALSE",
+  };
+};
+
+const resolveServiceRouteSelection = async (dbPath: string, input: SelectionInput) => {
+  const { idE, idL, nmE, nmL, idC, nmC } = routeSelectionExpressions(input);
+  const rows = await queryRows(
+    dbPath,
+    `
+    WITH c AS (SELECT route_id, route_name, route_short_name, route_long_name,
+      CASE WHEN ${idE} THEN 1 WHEN ${idL} THEN 2 WHEN ${nmE} THEN 3 WHEN ${nmL} THEN 4 WHEN ${idC} THEN 5 WHEN ${nmC} THEN 6 ELSE NULL END AS r
+      FROM RoutesTable WHERE ${idE} OR ${idL} OR ${nmE} OR ${nmL} OR ${idC} OR ${nmC}),
+    b AS (SELECT * FROM c WHERE r = (SELECT MIN(r) FROM c))
+    SELECT route_id, route_name, route_short_name, route_long_name FROM b ORDER BY route_name, route_id LIMIT 6`,
+  );
+
+  if (rows.length === 0) throw new Error(`No route matched "${input.value}" from --${input.flag}`);
+  if (rows.length > 1) {
+    const fmt = rows.map((r) => `${r.route_id} (${r.route_name || ""})`).join(", ");
+    throw new Error(`Multiple routes matched: ${fmt}. Use --route-id with exact ID.`);
+  }
+  const row = rows[0];
+  return {
+    routeId: String(row.route_id),
+    routeName: typeof row.route_name === "string" ? row.route_name : undefined,
+  };
+};
+
+async function resolveServiceRouteFromArgs(
+  args: Args,
+): Promise<{ routeId: string; routeName?: string }> {
+  const positional = args.positionals.filter((p) => !VIEW_NAMES.has(p)).join(" ").trim();
+  const flags = { ...args.flags };
+  const id = getFlagString(flags, "id") || getFlagString(flags, "route-id");
+  const name = getFlagString(flags, "name") || getFlagString(flags, "route-name");
+  const selected = getFlagString(flags, "selected-route") || positional || undefined;
+  if (id) flags["route-id"] = id;
+  else if (name) flags["route-name"] = name;
+  else if (selected) flags["selected-route"] = selected;
+  const input = getServiceRouteSelectionInput(flags);
+  if (!input) throw new Error("Provide a route value");
+  const ds = await readDatasetState();
+  return resolveServiceRouteSelection(ds.dbPath, input);
+}
+
 const getPathwayStopSelectionInput = (args: Args) => {
-  const positional = args.positionals.join(" ").trim();
+  const positional = args.positionals.filter((p) => !VIEW_NAMES.has(p)).join(" ").trim();
   const flags = { ...args.flags };
   const id =
     getFlagString(flags, "stop-id") ||
@@ -634,8 +756,28 @@ const getPathwayStopSelectionInput = (args: Args) => {
   return getStopSelectionInput(flags);
 };
 
-const getRouteFlag = (args: Args) =>
-  getFlagString(args.flags, "route") || getFlagString(args.flags, "view");
+const VIEW_NAMES = new Set([
+  "map", "table", "info", "service", "trips", "flow", "radial",
+  "directional", "start", "end",
+]);
+
+const getViewFlag = (args: Args) => {
+  const explicit = getFlagString(args.flags, "view");
+  if (explicit) return explicit;
+  // Allow view name as positional: `routes --id R1 service`
+  for (const p of args.positionals) {
+    if (VIEW_NAMES.has(p)) return p;
+  }
+  // Infer service view from --service/--service-id/--trip/--trip-id/--compare flags
+  if (
+    getFlagString(args.flags, "service-id") || getFlagString(args.flags, "service") ||
+    getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "trip") ||
+    getFlagString(args.flags, "compare")
+  ) {
+    return "service";
+  }
+  return undefined;
+};
 
 const stationViewForRoute = (route?: string) => {
   if (!route || route === "info" || route === "station-info") return "stations/info";
@@ -655,6 +797,27 @@ const stopsViewForRoute = (route?: string) => {
   if (!route || route === "map" || route === "stops/map") return "stops/map";
   if (route === "table" || route === "stops/table") return "stops/table";
   throw new Error("Stops route must be map or table");
+};
+
+const serviceRoutesViewForRoute = (route?: string, routeId?: string) => {
+  // When a specific route ID is provided and no explicit view, show route info
+  if (!route && routeId) return "routes/info";
+  if (!route || route === "map" || route === "routes/map") return "routes/map";
+  if (route === "table" || route === "routes/table") return "routes/table";
+  if (route === "info" || route === "route-info") {
+    if (!routeId) return "routes/map";
+    return "routes/info";
+  }
+  if (
+    route === "service" ||
+    route === "route-service" ||
+    route === "trips" ||
+    route === "route-trips"
+  ) {
+    if (!routeId) return "routes/map";
+    return "routes/service";
+  }
+  throw new Error("Routes route must be map, table, info, service, or trips");
 };
 
 const pathwayViewForRoute = (route?: string) => {
@@ -678,22 +841,33 @@ const pathwayViewForRoute = (route?: string) => {
   throw new Error("Pathway route must be flow, map, table, or end");
 };
 
+const wantsUrlOnly = (args: Args) => hasFlag(args.flags, "url-only");
+
 const wantsDashboardOutput = (args: Args) =>
   hasFlag(args.flags, "dashboard") ||
   hasFlag(args.flags, "open") ||
-  typeof args.flags.route === "string" ||
-  typeof args.flags.view === "string";
+  hasFlag(args.flags, "url") ||
+  hasFlag(args.flags, "url-only");
+
 
 const dashboardParamsFromFlags = (args: Args) => {
   const params: Record<string, string> = {};
   const stationFilter = getFlagString(args.flags, "station-filter");
   const stopFilter = getFlagString(args.flags, "stop-filter");
+  const routeFilter = getFlagString(args.flags, "route-filter");
   const mapFocus = getFlagString(args.flags, "map-focus");
+  const selectedRoute =
+    getFlagString(args.flags, "selected-route") || getFlagString(args.flags, "route-id");
   const selectedNode =
     getFlagString(args.flags, "selected-node") || getFlagString(args.flags, "node-id");
   if (stationFilter) params.cliStationFilter = stationFilter;
   if (stopFilter) params.cliStopFilter = stopFilter;
+  if (routeFilter) params.cliRouteFilter = routeFilter;
   if (mapFocus) params.cliMapFocus = mapFocus;
+  if (selectedRoute) {
+    params.cliSelectedRoute = selectedRoute;
+    params.selectedRouteId = selectedRoute;
+  }
   if (selectedNode) {
     params.cliSelectedNode = selectedNode;
     params.selectedNodeId = selectedNode;
@@ -704,7 +878,7 @@ const dashboardParamsFromFlags = (args: Args) => {
 const ensureOutputMode = (args: Args) => {
   if (wantsDataOutput(args.flags) && wantsDashboardOutput(args)) {
     throw new Error(
-      "Use either --data/--format for terminal output or --dashboard/--route for dashboard output",
+      "Use either --data/--format for terminal output or --url/--dashboard for web output",
     );
   }
 };
@@ -738,7 +912,7 @@ const commandImport = async (args: Args) => {
     const metadata = await importDataset(feedArg);
     console.log(`Imported ${metadata.fileName}`);
     console.log(
-      `Stops: ${metadata.counts.stops}  Stations: ${metadata.counts.stations}  Pathways: ${metadata.counts.pathways}`,
+      `Stops: ${metadata.counts.stops}  Stations: ${metadata.counts.stations}  Pathways: ${metadata.counts.pathways}  Routes: ${metadata.counts.routes}`,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -767,47 +941,295 @@ const commandTables = async (args: Args) => {
 
 const commandStations = async (args: Args) => {
   ensureOutputMode(args);
-  if (wantsDashboardOutput(args)) {
-    await openDashboardView(
-      stationsViewForRoute(getRouteFlag(args)),
-      dashboardParamsFromFlags(args),
-    );
+  const id = getFlagString(args.flags, "station-id") || getFlagString(args.flags, "id") || getPositionalId(args);
+  if (wantsDataOutput(args.flags)) {
+    const dataset = await readDatasetState();
+    const filters: string[] = [];
+    const name = getFlagString(args.flags, "station-name") || getFlagString(args.flags, "name");
+    const wheelchair = getFlagString(args.flags, "wheelchair");
+    const pathways =
+      getFlagString(args.flags, "pathways-status") || getFlagString(args.flags, "pathways");
+    if (id) filters.push(`stop_id = ${sqlString(id)}`);
+    if (name) filters.push(`LOWER(stop_name) LIKE LOWER(${sqlString(`%${name}%`)})`);
+    if (wheelchair) filters.push(`wheelchair_status = ${sqlString(wheelchair)}`);
+    if (pathways) filters.push(`pathways_status = ${sqlString(pathways)}`);
+    const where = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
+    const rows = await queryRows(dataset.dbPath, `SELECT * FROM StationsTable${where}`);
+    printOrNone(rows, args);
     return;
   }
-  const dataset = await readDatasetState();
-  const filters: string[] = [];
-  const id = getFlagString(args.flags, "station-id") || getFlagString(args.flags, "id");
-  const name = getFlagString(args.flags, "station-name") || getFlagString(args.flags, "name");
-  const wheelchair = getFlagString(args.flags, "wheelchair");
-  const pathways = getFlagString(args.flags, "pathways-status") || getFlagString(args.flags, "pathways");
-  if (id) filters.push(`stop_id = ${sqlString(id)}`);
-  if (name) filters.push(`LOWER(stop_name) LIKE LOWER(${sqlString(`%${name}%`)})`);
-  if (wheelchair) filters.push(`wheelchair_status = ${sqlString(wheelchair)}`);
-  if (pathways) filters.push(`pathways_status = ${sqlString(pathways)}`);
-  const where = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
-  const rows = await queryRows(dataset.dbPath, `SELECT * FROM StationsTable${where}`);
-  printResult({ columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows }, args.flags);
+  if (id) {
+    const dataset = await readDatasetState();
+    const rows = await queryRows(dataset.dbPath, `SELECT stop_id FROM StationsTable WHERE stop_id = ${sqlString(id)} LIMIT 1`);
+    if (rows.length === 0) {
+      console.log(`No station found with ID "${id}".`);
+      return;
+    }
+  }
+  const params = dashboardParamsFromFlags(args);
+  if (id) {
+    params.cliSelectedStation = id;
+    params.selectedStationId = id;
+  }
+  await openDashboardView(stationsViewForRoute(getViewFlag(args)), params);
 };
 
 const commandStops = async (args: Args) => {
   ensureOutputMode(args);
-  if (wantsDashboardOutput(args)) {
-    await openDashboardView(stopsViewForRoute(getRouteFlag(args)), dashboardParamsFromFlags(args));
+  const id = getFlagString(args.flags, "stop-id") || getFlagString(args.flags, "id") || getPositionalId(args);
+  if (wantsDataOutput(args.flags)) {
+    const dataset = await readDatasetState();
+    const filters: string[] = [];
+    const name = getFlagString(args.flags, "stop-name") || getFlagString(args.flags, "name");
+    const wheelchair = getFlagString(args.flags, "wheelchair");
+    const locationType = getFlagString(args.flags, "location-type");
+    if (id) filters.push(`stop_id = ${sqlString(id)}`);
+    if (name) filters.push(`LOWER(stop_name) LIKE LOWER(${sqlString(`%${name}%`)})`);
+    if (wheelchair) filters.push(`wheelchair_status = ${sqlString(wheelchair)}`);
+    if (locationType) filters.push(`location_type_name = ${sqlString(locationType)}`);
+    const where = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
+    const rows = await queryRows(dataset.dbPath, `SELECT * FROM StopsTable${where}`);
+    printOrNone(rows, args);
     return;
   }
-  const dataset = await readDatasetState();
-  const filters: string[] = [];
-  const id = getFlagString(args.flags, "stop-id") || getFlagString(args.flags, "id");
-  const name = getFlagString(args.flags, "stop-name") || getFlagString(args.flags, "name");
-  const wheelchair = getFlagString(args.flags, "wheelchair");
-  const locationType = getFlagString(args.flags, "location-type");
-  if (id) filters.push(`stop_id = ${sqlString(id)}`);
-  if (name) filters.push(`LOWER(stop_name) LIKE LOWER(${sqlString(`%${name}%`)})`);
-  if (wheelchair) filters.push(`wheelchair_status = ${sqlString(wheelchair)}`);
-  if (locationType) filters.push(`location_type_name = ${sqlString(locationType)}`);
-  const where = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
-  const rows = await queryRows(dataset.dbPath, `SELECT * FROM StopsTable${where}`);
-  printResult({ columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows }, args.flags);
+  if (id) {
+    const dataset = await readDatasetState();
+    const rows = await queryRows(dataset.dbPath, `SELECT stop_id FROM StopsTable WHERE stop_id = ${sqlString(id)} LIMIT 1`);
+    if (rows.length === 0) {
+      console.log(`No stop found with ID "${id}".`);
+      return;
+    }
+  }
+  const params = dashboardParamsFromFlags(args);
+  if (id) {
+    params.cliSelectedStop = id;
+    params.selectedStopId = id;
+  }
+  await openDashboardView(stopsViewForRoute(getViewFlag(args)), params);
+};
+
+const addRouteServiceParams = (args: Args, params: Record<string, string>) => {
+  const serviceId = getFlagString(args.flags, "service-id") || getFlagString(args.flags, "service");
+  const tripId = getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "trip");
+  const compare = getFlagString(args.flags, "compare");
+  if (serviceId) params.selectedServiceId = serviceId;
+  if (compare) {
+    // First trip becomes selectedTripId so the trip panel renders,
+    // ALL trips go to compareTripIds so they all show in compare view
+    const trips = compare.split(",").map((s) => s.trim()).filter(Boolean);
+    if (trips.length > 0) {
+      params.selectedTripId = tripId || trips[0];
+      params.compareTripIds = compare;
+    }
+  } else if (tripId) {
+    params.selectedTripId = tripId;
+  }
+};
+
+/** Verify --service and --trip exist for the given route before opening dashboard. Returns false if invalid. */
+const verifyRouteServiceFlags = async (args: Args, routeId: string): Promise<boolean> => {
+  const serviceId = getFlagString(args.flags, "service-id") || getFlagString(args.flags, "service");
+  const tripId = getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "trip");
+  if (!serviceId && !tripId) return true;
+
+  const ds = await readDatasetState();
+  if (serviceId) {
+    const rows = await queryRows(
+      ds.dbPath,
+      `SELECT service_id FROM trips WHERE route_id = ${sqlString(routeId)} AND service_id = ${sqlString(serviceId)} LIMIT 1`,
+    );
+    if (rows.length === 0) {
+      console.log(`No service "${serviceId}" found for route "${routeId}".`);
+      return false;
+    }
+  }
+  if (tripId) {
+    const q = serviceId
+      ? `SELECT trip_id FROM trips WHERE trip_id = ${sqlString(tripId)} AND route_id = ${sqlString(routeId)} AND service_id = ${sqlString(serviceId)} LIMIT 1`
+      : `SELECT trip_id FROM trips WHERE trip_id = ${sqlString(tripId)} AND route_id = ${sqlString(routeId)} LIMIT 1`;
+    const rows = await queryRows(ds.dbPath, q);
+    if (rows.length === 0) {
+      console.log(`No trip "${tripId}" found for route "${routeId}"${serviceId ? ` service "${serviceId}"` : ""}.`);
+      return false;
+    }
+  }
+  return true;
+};
+
+const MAX_COMPARE_TRIPS = 5;
+
+const printRouteServiceData = async (args: Args, routeId: string) => {
+  const view = getViewFlag(args);
+  const serviceId = getFlagString(args.flags, "service-id") || getFlagString(args.flags, "service");
+  const tripId = getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "trip");
+  const compareRaw = getFlagString(args.flags, "compare");
+
+  if (view === "service") {
+    const ds = await readDatasetState();
+
+    // --compare trip1,trip2,... — side-by-side stop_times (requires --service)
+    if (compareRaw) {
+      if (!serviceId) {
+        console.log("--compare requires --service to scope trips within a service.");
+        return true;
+      }
+      const tripIds = compareRaw.split(",").map((s) => s.trim()).filter(Boolean);
+      if (tripIds.length === 0) {
+        console.log("Provide comma-separated trip IDs: --compare trip1,trip2");
+        return true;
+      }
+      if (tripIds.length > MAX_COMPARE_TRIPS) {
+        console.log(`Maximum ${MAX_COMPARE_TRIPS} trips can be compared.`);
+        return true;
+      }
+      // Verify all trips belong to this route + service
+      for (const tid of tripIds) {
+        const check = await queryRows(
+          ds.dbPath,
+          `SELECT trip_id FROM trips WHERE trip_id = ${sqlString(tid)} AND route_id = ${sqlString(routeId)} AND service_id = ${sqlString(serviceId)} LIMIT 1`,
+        );
+        if (check.length === 0) {
+          console.log(`Trip "${tid}" not found in route "${routeId}" service "${serviceId}".`);
+          return true;
+        }
+      }
+      // Build a combined view: stop_sequence + stop_id, then one column per trip with arrival times
+      const allRows: Record<string, unknown>[] = [];
+      for (const tid of tripIds) {
+        const rows = await queryRows(
+          ds.dbPath,
+          `SELECT stop_sequence, stop_id, arrival_time, departure_time FROM stop_times WHERE trip_id = ${sqlString(tid)} ORDER BY stop_sequence`,
+        );
+        if (rows.length === 0) {
+          console.log(`No stop_times found for trip "${tid}".`);
+          return true;
+        }
+        for (const row of rows) {
+          const key = Number(row.stop_sequence);
+          if (!allRows[key]) {
+            allRows[key] = { stop_sequence: row.stop_sequence, stop_id: row.stop_id };
+          }
+          (allRows[key] as any)[`${tid}_arr`] = row.arrival_time;
+          (allRows[key] as any)[`${tid}_dep`] = row.departure_time;
+        }
+      }
+      const combined = Object.values(allRows).filter(Boolean).sort(
+        (a: any, b: any) => Number(a.stop_sequence) - Number(b.stop_sequence),
+      );
+      printOrNone(combined as Record<string, unknown>[], args);
+      return true;
+    }
+
+    if (tripId) {
+      const rows = await queryRows(
+        ds.dbPath,
+        `SELECT st.* FROM stop_times st WHERE st.trip_id = ${sqlString(tripId)} ORDER BY st.stop_sequence`,
+      );
+      printOrNone(rows, args);
+    } else if (serviceId) {
+      const rows = await queryRows(
+        ds.dbPath,
+        `SELECT t.trip_id, t.trip_headsign, t.trip_short_name, t.direction_id, t.shape_id
+         FROM trips t WHERE t.route_id = ${sqlString(routeId)} AND t.service_id = ${sqlString(serviceId)}
+         ORDER BY t.trip_id`,
+      );
+      printOrNone(rows, args);
+    } else {
+      const rows = await queryRows(
+        ds.dbPath,
+        `SELECT c.service_id, c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday, c.start_date, c.end_date, COUNT(DISTINCT t.trip_id) AS trip_count
+         FROM calendar c
+         JOIN trips t ON t.service_id = c.service_id
+         WHERE t.route_id = ${sqlString(routeId)}
+         GROUP BY c.service_id, c.monday, c.tuesday, c.wednesday, c.thursday, c.friday, c.saturday, c.sunday, c.start_date, c.end_date
+         ORDER BY trip_count DESC`,
+      );
+      printOrNone(rows, args);
+    }
+    return true;
+  }
+  return false;
+};
+
+// Get first positional that isn't a view name (for use as ID)
+const getPositionalId = (args: Args) => {
+  for (const p of args.positionals) {
+    if (!VIEW_NAMES.has(p)) return p;
+  }
+  return undefined;
+};
+
+const printOrNone = (rows: Record<string, unknown>[], args: Args) => {
+  if (rows.length === 0) {
+    console.log("No results found.");
+    return;
+  }
+  printResult({ columns: Object.keys(rows[0]), rows }, args.flags);
+};
+
+const commandRoutes = async (args: Args) => {
+  ensureOutputMode(args);
+  const id = getFlagString(args.flags, "route-id") || getFlagString(args.flags, "id") || getPositionalId(args);
+  if (wantsDataOutput(args.flags)) {
+    if (id && (await printRouteServiceData(args, id))) return;
+    const dataset = await readDatasetState();
+    const filters: string[] = [];
+    const name = getFlagString(args.flags, "route-name") || getFlagString(args.flags, "name");
+    const type = getFlagString(args.flags, "type") || getFlagString(args.flags, "route-type");
+    if (id) filters.push(`route_id = ${sqlString(id)}`);
+    if (name) {
+      filters.push(
+        `(LOWER(route_name) LIKE LOWER(${sqlString(`%${name}%`)}) OR LOWER(route_short_name) LIKE LOWER(${sqlString(`%${name}%`)}) OR LOWER(route_long_name) LIKE LOWER(${sqlString(`%${name}%`)}))`,
+      );
+    }
+    if (type) {
+      const numericType = Number(type);
+      if (Number.isFinite(numericType)) filters.push(`route_type = ${numericType}`);
+      else filters.push(`route_type_name = ${sqlString(type)}`);
+    }
+    const where = filters.length > 0 ? ` WHERE ${filters.join(" AND ")}` : "";
+    const rows = await queryRows(dataset.dbPath, `SELECT * FROM RoutesTable${where}`);
+    printOrNone(rows, args);
+    return;
+  }
+  // Verify route exists before opening dashboard
+  if (id) {
+    const dataset = await readDatasetState();
+    const rows = await queryRows(dataset.dbPath, `SELECT route_id FROM RoutesTable WHERE route_id = ${sqlString(id)} LIMIT 1`);
+    if (rows.length === 0) {
+      console.log(`No route found with ID "${id}".`);
+      return;
+    }
+    if (!(await verifyRouteServiceFlags(args, id))) return;
+  }
+  const params = dashboardParamsFromFlags(args);
+  if (id) {
+    params.cliSelectedRoute = id;
+    params.selectedRouteId = id;
+  }
+  addRouteServiceParams(args, params);
+  await openDashboardView(serviceRoutesViewForRoute(getViewFlag(args), id), params);
+};
+
+const commandRoute = async (args: Args) => {
+  ensureOutputMode(args);
+  const route = await resolveServiceRouteFromArgs(args);
+  if (wantsDataOutput(args.flags)) {
+    if (await printRouteServiceData(args, route.routeId)) return;
+    const ds = await readDatasetState();
+    const rows = await queryRows(
+      ds.dbPath,
+      `SELECT * FROM get_route_info(${sqlString(route.routeId)})`,
+    );
+    printOrNone(rows, args);
+    return;
+  }
+  if (!(await verifyRouteServiceFlags(args, route.routeId))) return;
+  const params = dashboardParamsFromFlags(args);
+  params.cliSelectedRoute = route.routeId;
+  params.selectedRouteId = route.routeId;
+  addRouteServiceParams(args, params);
+  await openDashboardView(serviceRoutesViewForRoute(getViewFlag(args), route.routeId), params);
 };
 
 const commandStatus = async () => {
@@ -818,8 +1240,29 @@ const commandStatus = async () => {
   console.log(`DuckDB: ${dataset.dbPath}`);
   console.log(`Imported: ${dataset.importedAt}`);
   console.log(
-    `Stops: ${dataset.counts.stops}  Stations: ${dataset.counts.stations}  Pathways: ${dataset.counts.pathways}`,
+    `Stops: ${dataset.counts.stops}  Stations: ${dataset.counts.stations}  Pathways: ${dataset.counts.pathways}  Routes: ${dataset.counts.routes || 0}`,
   );
+
+  // Show file availability
+  try {
+    const tables = ["trips", "stop_times", "shapes", "calendar", "calendar_dates"];
+    const available: string[] = [];
+    const missing: string[] = [];
+    for (const t of tables) {
+      const rows = await queryRows(dataset.dbPath, `SELECT COUNT(*) AS n FROM information_schema.tables WHERE table_name = '${t}'`).catch(() => [{ n: 0 }]);
+      const count = await queryRows(dataset.dbPath, `SELECT COUNT(*) AS n FROM ${t}`).catch(() => [{ n: 0 }]);
+      if (Number(rows[0]?.n) > 0 && Number(count[0]?.n) > 0) {
+        available.push(t);
+      } else {
+        missing.push(t);
+      }
+    }
+    if (available.length > 0) console.log(`Files: ${available.join(", ")}`);
+    if (missing.length > 0) console.log(`Missing: ${missing.join(", ")}`);
+  } catch {
+    // status check is best-effort
+  }
+
   if (daemon) {
     console.log(`Session: running (port ${daemon.port})`);
     console.log(`Dashboard: http://127.0.0.1:${daemon.port}`);
@@ -850,23 +1293,38 @@ const commandClean = async () => {
 
 const commandExport = async (args: Args) => {
   const ds = await readDatasetState();
-  const outDir = getFlagString(args.flags, "output") || getFlagString(args.flags, "out") || getFlagString(args.flags, "o") || ".";
+  const outDir =
+    getFlagString(args.flags, "output") ||
+    getFlagString(args.flags, "out") ||
+    getFlagString(args.flags, "o") ||
+    ".";
   const outPath = path.resolve(outDir);
 
   const includeStops = !hasFlag(args.flags, "no-stops");
   const includePathways = !hasFlag(args.flags, "no-pathways");
+  const includeRoutes = !hasFlag(args.flags, "no-routes");
 
-  if (!includeStops && !includePathways) {
-    throw new Error("Nothing to export. Remove --no-stops or --no-pathways.");
+  if (!includeStops && !includePathways && !includeRoutes) {
+    throw new Error("Nothing to export. Remove --no-stops, --no-pathways, or --no-routes.");
   }
 
   // Check for pending edits
-  const stopEdits = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM EditStopTable").catch(() => [{ c: 0 }]);
-  const pathwayEdits = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM EditPathwayTable").catch(() => [{ c: 0 }]);
+  const stopEdits = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM EditStopTable").catch(
+    () => [{ c: 0 }],
+  );
+  const pathwayEdits = await queryRows(
+    ds.dbPath,
+    "SELECT COUNT(*) AS c FROM EditPathwayTable",
+  ).catch(() => [{ c: 0 }]);
+  const routeEdits = await queryRows(
+    ds.dbPath,
+    "SELECT COUNT(*) AS c FROM EditRouteTable",
+  ).catch(() => [{ c: 0 }]);
   const stopEditCount = Number(stopEdits[0]?.c || 0);
   const pathwayEditCount = Number(pathwayEdits[0]?.c || 0);
+  const routeEditCount = Number(routeEdits[0]?.c || 0);
 
-  if (stopEditCount === 0 && pathwayEditCount === 0 && !hasFlag(args.flags, "force")) {
+  if (stopEditCount === 0 && pathwayEditCount === 0 && routeEditCount === 0 && !hasFlag(args.flags, "force")) {
     console.log("No edits to export. Use --force to export original data unchanged.");
     return;
   }
@@ -928,8 +1386,10 @@ const commandExport = async (args: Args) => {
 
   if (includeStops) {
     const f = await exportFile(
-      "stops", "EditStopTable", "stop_id",
-      ["row_id", "location_type_name", "wheelchair_status"],
+      "stops",
+      "EditStopTable",
+      "stop_id",
+      ["row_id", "location_type_name", "wheelchair_status", "geom"],
       "stops.txt",
     );
     console.log(`Exported stops.txt (${stopEditCount} edits applied)`);
@@ -937,10 +1397,14 @@ const commandExport = async (args: Args) => {
   }
 
   if (includePathways) {
-    const pathwayCount = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM pathways").catch(() => [{ c: 0 }]);
+    const pathwayCount = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM pathways").catch(
+      () => [{ c: 0 }],
+    );
     if (Number(pathwayCount[0]?.c || 0) > 0 || pathwayEditCount > 0) {
       const f = await exportFile(
-        "pathways", "EditPathwayTable", "pathway_id",
+        "pathways",
+        "EditPathwayTable",
+        "pathway_id",
         ["row_id", "pathway_mode_name", "direction_type"],
         "pathways.txt",
       );
@@ -948,6 +1412,25 @@ const commandExport = async (args: Args) => {
       exported.push(f);
     } else {
       console.log("No pathways data to export.");
+    }
+  }
+
+  if (includeRoutes) {
+    const routeCount = await queryRows(ds.dbPath, "SELECT COUNT(*) AS c FROM routes").catch(
+      () => [{ c: 0 }],
+    );
+    if (Number(routeCount[0]?.c || 0) > 0 || routeEditCount > 0) {
+      const f = await exportFile(
+        "routes",
+        "EditRouteTable",
+        "route_id",
+        ["row_id", "route_name", "route_type_name", "route_color_hex", "route_text_color_hex", "shape_points_json", "status"],
+        "routes.txt",
+      );
+      console.log(`Exported routes.txt (${routeEditCount} edits applied)`);
+      exported.push(f);
+    } else {
+      console.log("No routes data to export.");
     }
   }
 
@@ -971,6 +1454,10 @@ const commandQuery = async (args: Args) => {
     if (dashboard.stationId) {
       params.cliSelectedStation = dashboard.stationId;
       params.selectedStationId = dashboard.stationId;
+    }
+    if (dashboard.routeId) {
+      params.cliSelectedRoute = dashboard.routeId;
+      params.selectedRouteId = dashboard.routeId;
     }
     await openDashboardView(dashboard.view, params);
     return;
@@ -1004,7 +1491,7 @@ const commandStation = async (args: Args) => {
     );
     return;
   }
-  await openDashboardView(stationViewForRoute(getRouteFlag(args)), {
+  await openDashboardView(stationViewForRoute(getViewFlag(args)), {
     ...dashboardParamsFromFlags(args),
     cliSelectedStation: st.stopId,
     selectedStationId: st.stopId,
@@ -1031,7 +1518,7 @@ const commandStationConnections = async (args: Args) => {
     );
     return;
   }
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), {
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), {
     ...dashboardParamsFromFlags(args),
     cliSelectedStation: st.stopId,
     selectedStationId: st.stopId,
@@ -1072,7 +1559,7 @@ const commandStationPathways = async (args: Args) => {
         );
         return;
       }
-      await openDashboardView(stopsViewForRoute(getRouteFlag(args)), {
+      await openDashboardView(stopsViewForRoute(getViewFlag(args)), {
         ...dashboardParamsFromFlags(args),
         cliSelectedStop: stop.stopId,
         selectedStopId: stop.stopId,
@@ -1113,7 +1600,7 @@ const commandStationPathways = async (args: Args) => {
     params.cliSelectedNode = nodeValue;
     params.selectedNodeId = nodeValue;
   }
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), params);
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), params);
 };
 
 const commandEditPathway = async (args: Args) => {
@@ -1154,7 +1641,7 @@ const commandEditPathway = async (args: Args) => {
     params.cliSelectedNode = nodeValue;
     params.selectedNodeId = nodeValue;
   }
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), params);
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), params);
 };
 
 const commandEditStop = async (args: Args) => {
@@ -1191,7 +1678,7 @@ const commandEditStop = async (args: Args) => {
         );
         return;
       }
-      await openDashboardView(stopsViewForRoute(getRouteFlag(args)), {
+      await openDashboardView(stopsViewForRoute(getViewFlag(args)), {
         ...dashboardParamsFromFlags(args),
         cliSelectedStop: stop.stopId,
         selectedStopId: stop.stopId,
@@ -1231,7 +1718,7 @@ const commandEditStop = async (args: Args) => {
     params.cliSelectedNode = nodeValue;
     params.selectedNodeId = nodeValue;
   }
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), params);
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), params);
 };
 
 const commandEditTable = async (args: Args) => {
@@ -1239,6 +1726,9 @@ const commandEditTable = async (args: Args) => {
   const ds = await readDatasetState();
   if (table === "pathways" || table === "pathway" || table === "EditPathwayTable") {
     const rows = await queryRows(ds.dbPath, "SELECT * FROM EditPathwayTable");
+    printResult({ columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows }, args.flags);
+  } else if (table === "routes" || table === "route" || table === "EditRouteTable") {
+    const rows = await queryRows(ds.dbPath, "SELECT * FROM EditRouteTable");
     printResult({ columns: rows.length > 0 ? Object.keys(rows[0]) : [], rows }, args.flags);
   } else if (table === "stops" || table === "stop" || table === "EditStopTable") {
     const rows = await queryRows(ds.dbPath, "SELECT * FROM EditStopTable");
@@ -1253,6 +1743,15 @@ const commandEditTable = async (args: Args) => {
       },
       args.flags,
     );
+    console.log("\nEditRouteTable:");
+    const routeRows = await queryRows(ds.dbPath, "SELECT * FROM EditRouteTable");
+    printResult(
+      {
+        columns: routeRows.length > 0 ? Object.keys(routeRows[0]) : [],
+        rows: routeRows,
+      },
+      args.flags,
+    );
     console.log("\nEditStopTable:");
     const stopRows = await queryRows(ds.dbPath, "SELECT * FROM EditStopTable");
     printResult(
@@ -1263,7 +1762,7 @@ const commandEditTable = async (args: Args) => {
       args.flags,
     );
   } else {
-    throw new Error("edit_table accepts: pathways, stops, or no argument for both");
+    throw new Error("edit_table accepts: pathways, routes, stops, or no argument for all");
   }
 };
 
@@ -1281,8 +1780,7 @@ const commandAddConnection = async (args: Args) => {
   const width = getFlagString(args.flags, "min-width");
   const sign = getFlagString(args.flags, "signposted-as");
   const revSign = getFlagString(args.flags, "reversed-signposted-as");
-  const pathwayId =
-    getFlagString(args.flags, "pathway-id") || `pathway_cli_${Date.now()}`;
+  const pathwayId = getFlagString(args.flags, "pathway-id") || `pathway_cli_${Date.now()}`;
 
   const [row] = await queryRows(
     ds.dbPath,
@@ -1402,13 +1900,15 @@ const commandAddNode = async (args: Args) => {
   const ds = await readDatasetState();
   const stopId = getFlagString(args.flags, "stop-id") || getFlagString(args.flags, "id");
   if (!stopId) throw new Error("Provide --stop-id for the new node");
-  const stopName = getFlagString(args.flags, "stop-name") || getFlagString(args.flags, "name") || stopId;
+  const stopName =
+    getFlagString(args.flags, "stop-name") || getFlagString(args.flags, "name") || stopId;
   const latStr = getFlagString(args.flags, "lat");
   const lonStr = getFlagString(args.flags, "lon");
   if (!latStr || !lonStr) throw new Error("Provide --lat and --lon");
   const lat = Number(latStr);
   const lon = Number(lonStr);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("--lat and --lon must be valid numbers");
+  if (!Number.isFinite(lat) || !Number.isFinite(lon))
+    throw new Error("--lat and --lon must be valid numbers");
   const locationType = getFlagString(args.flags, "location-type") || "Generic Node";
   const parentStation = getFlagString(args.flags, "parent-station");
   const levelId = getFlagString(args.flags, "level-id");
@@ -1499,10 +1999,7 @@ const commandDeleteNode = async (args: Args) => {
   };
 
   if (status === "new" || status === "new edit") {
-    await executeRows(
-      ds.dbPath,
-      `DELETE FROM EditStopTable WHERE stop_id = ${sqlString(stopId)}`,
-    );
+    await executeRows(ds.dbPath, `DELETE FROM EditStopTable WHERE stop_id = ${sqlString(stopId)}`);
   } else {
     await executeRows(
       ds.dbPath,
@@ -1564,7 +2061,7 @@ const commandStationRoutes = async (args: Args) => {
     params.cliSelectedNode = nodeValue;
     params.selectedNodeId = nodeValue;
   }
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), params);
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), params);
 };
 
 const commandStationShortestRoute = async (args: Args) => {
@@ -1602,7 +2099,7 @@ const commandStationShortestRoute = async (args: Args) => {
   const toStop = route?.end_stop == null ? undefined : String(route.end_stop);
   if (!fromStop || !toStop) return;
 
-  await openDashboardView(pathwayViewForRoute(getRouteFlag(args)), {
+  await openDashboardView(pathwayViewForRoute(getViewFlag(args)), {
     ...dashboardParamsFromFlags(args),
     cliSelectedStation: st.stopId,
     selectedStationId: st.stopId,
@@ -1615,7 +2112,12 @@ const commandStationShortestRoute = async (args: Args) => {
 
 const commandStopInfo = async (args: Args) => {
   ensureOutputMode(args);
-  const st = await resolveStopFromArgs(args) as { stopId: string; stopName?: string; stopLat?: number; stopLon?: number };
+  const st = (await resolveStopFromArgs(args)) as {
+    stopId: string;
+    stopName?: string;
+    stopLat?: number;
+    stopLon?: number;
+  };
   if (wantsDataOutput(args.flags)) {
     const ds = await readDatasetState();
     const rows = await queryRows(
@@ -1641,18 +2143,20 @@ const commandStopInfo = async (args: Args) => {
   if (st.stopLat != null && st.stopLon != null) {
     params.mapFocus = `${st.stopLat},${st.stopLon},16`;
   }
-  await openDashboardView(stopsViewForRoute(getRouteFlag(args)), params);
+  await openDashboardView(stopsViewForRoute(getViewFlag(args)), params);
 };
 
 const commandView = async (args: Args) => {
-  let view = getRouteFlag(args) || "auto";
+  let view = getViewFlag(args) || "auto";
   if (!supportedViews.has(view)) throw new Error(`Unsupported view: ${view}`);
   const params = dashboardParamsFromFlags(args);
 
   const stationInput = getStationSelectionInput(args.flags);
   const stopInput = getStopSelectionInput(args.flags);
+  const routeInput = getServiceRouteSelectionInput(args.flags);
   if (view === "auto" && stationInput) view = "stations/info";
   if (view === "auto" && stopInput) view = "stops/map";
+  if (view === "auto" && routeInput) view = "routes/map";
 
   if (stationInput) {
     const ds = await readDatasetState();
@@ -1665,6 +2169,12 @@ const commandView = async (args: Args) => {
     const st = await resolveSelection(ds.dbPath, "StopsTable", stopInput);
     params.cliSelectedStop = st.stopId;
     params.selectedStopId = st.stopId;
+  }
+  if (routeInput) {
+    const ds = await readDatasetState();
+    const route = await resolveServiceRouteSelection(ds.dbPath, routeInput);
+    params.cliSelectedRoute = route.routeId;
+    params.selectedRouteId = route.routeId;
   }
 
   await openDashboardView(view, params);
@@ -1754,10 +2264,7 @@ const commandInstallSkill = async (args: Args) => {
   );
   const allowedTools = allowedToolsByAgent[agent!];
   if (allowedTools) {
-    skillMd = skillMd.replace(
-      /^(metadata:)/m,
-      `allowed-tools: ${allowedTools}\n$1`,
-    );
+    skillMd = skillMd.replace(/^(metadata:)/m, `allowed-tools: ${allowedTools}\n$1`);
   }
 
   await writeFile(skillMdPath, skillMd, "utf-8");
@@ -1773,6 +2280,12 @@ const main = async () => {
   }
 
   if (hasFlag(args.flags, "help") || args.command === "help") {
+    // View-specific help: e.g. `routes --view service -h` or `routes service -h`
+    const view = getViewFlag(args);
+    if (args.command && view && args.command !== "help") {
+      const viewKey = `${args.command}:${view}`;
+      if (printCommandHelp(viewKey)) return;
+    }
     if (args.command && args.command !== "help" && printCommandHelp(args.command)) {
       return;
     }
@@ -1787,8 +2300,7 @@ const main = async () => {
     printExamples();
     return;
   }
-  if (hasFlag(args.flags, "json"))
-    throw new Error("--json is not supported. Use --format json for structured terminal output.");
+  _urlOnlyMode = wantsUrlOnly(args);
 
   if (args.command === "import") {
     await commandImport(args);
@@ -1820,6 +2332,18 @@ const main = async () => {
   }
   if (args.command === "stops") {
     await commandStops(args);
+    return;
+  }
+  if (
+    args.command === "routes" ||
+    args.command === "service_routes" ||
+    args.command === "service-routes"
+  ) {
+    await commandRoutes(args);
+    return;
+  }
+  if (args.command === "route") {
+    await commandRoute(args);
     return;
   }
   if (args.command === "skill-path") {
@@ -1895,11 +2419,7 @@ const main = async () => {
     await commandDeleteNode(args);
     return;
   }
-  if (
-    args.command === "station_routes" ||
-    args.command === "station-routes" ||
-    args.command === "routes"
-  ) {
+  if (args.command === "station_routes" || args.command === "station-routes") {
     await commandStationRoutes(args);
     return;
   }

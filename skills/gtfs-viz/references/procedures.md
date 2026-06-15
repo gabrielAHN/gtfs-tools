@@ -82,6 +82,66 @@ SELECT * FROM get_time_interval_ranges('place-pktrm', NULL, NULL);
 
 Returns: `min_value`, `max_value`
 
+### get_route_map_bounds(route_ids)
+
+Bounding box, center, and zoom for a set of routes (uses spatial extension).
+
+```sql
+SELECT * FROM get_route_map_bounds(['ROUTE_1', 'ROUTE_2']);
+```
+
+Returns: `min_lon`, `max_lon`, `min_lat`, `max_lat`, `center_lon`, `center_lat`, `zoom`
+
+### get_stations_map_bounds()
+
+Bounding box for all stations (uses spatial `ST_Extent` on `geom` column).
+
+```sql
+SELECT * FROM get_stations_map_bounds();
+```
+
+Returns: `min_lon`, `max_lon`, `min_lat`, `max_lat`, `center_lon`, `center_lat`, `zoom`
+
+### get_stops_map_bounds()
+
+Bounding box for all stops (uses spatial `ST_Extent` on `geom` column).
+
+```sql
+SELECT * FROM get_stops_map_bounds();
+```
+
+Returns: `min_lon`, `max_lon`, `min_lat`, `max_lat`, `center_lon`, `center_lat`, `zoom`
+
+### get_station_service_routes(station_id)
+
+Routes serving a station.
+
+```sql
+SELECT * FROM get_station_service_routes('place-pktrm');
+```
+
+Returns: all `RoutesTable` columns for routes serving the station.
+
+### get_stop_service_routes(stop_id)
+
+Routes serving a stop.
+
+```sql
+SELECT * FROM get_stop_service_routes('10011');
+```
+
+Returns: all `RoutesTable` columns for routes serving the stop.
+
+### fit_zoom(min_lon, max_lon, min_lat, max_lat)
+
+Scalar macro that computes web mercator zoom level from bounding box.
+
+```sql
+SELECT fit_zoom(-74.0, -73.9, 40.7, 40.8);
+```
+
+Returns: zoom level (INTEGER, 4-17)
+
 ## Pathfinding Macros
 
 ### find_shortest_path(p_station_id, start_stop, end_stop, max_hops)

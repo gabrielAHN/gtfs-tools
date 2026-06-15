@@ -33,6 +33,7 @@ export type DatasetMetadata = {
     stops: number;
     stations: number;
     pathways: number;
+    routes: number;
   };
 };
 
