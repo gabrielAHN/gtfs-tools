@@ -166,3 +166,28 @@ test("a live pid in daemon.json that is not a daemon on the recorded port is nev
   assert.ok(alive(other.child.pid), "left running")
   assert.equal((await readDaemon()).cliVersion, pkg.version)
 })
+
+test("the same version from another install is reused while that install still holds it", async (t) => {
+  // Both packages installed separately (the documented layout) give two gtfs-tools copies of one version.
+  // Switching between `gtfs-tools` and `gtfs-viz` must not restart the daemon each time.
+  const { readDaemon, urlOnly, writeOldDaemonJson } = await setup(t)
+  const first = await urlOnly()
+  const record = await readDaemon()
+  const otherInstall = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-other-install-"))
+  t.after(() => rm(otherInstall, { recursive: true, force: true }))
+  await writeFile(path.join(otherInstall, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: pkg.version }))
+  await writeOldDaemonJson(record.pid, record.port, { sessionId: record.sessionId, cliVersion: pkg.version, packageRoot: otherInstall })
+  const again = await urlOnly()
+  assert.equal(again.port, first.port, "reused")
+  assert.equal(again.result.stderr, "")
+  assert.equal((await readDaemon()).pid, record.pid)
+
+  // That install was upgraded or removed: its daemon serves files that may be gone, so it is replaced.
+  await writeFile(path.join(otherInstall, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "9.9.9" }))
+  await writeOldDaemonJson(record.pid, record.port, { sessionId: record.sessionId, cliVersion: pkg.version, packageRoot: otherInstall })
+  const replaced = await urlOnly()
+  assert.notEqual(replaced.port, first.port)
+  assert.match(replaced.result.stderr, /Stopped the dashboard daemon/)
+  assert.equal(alive(record.pid), false)
+  assert.equal((await readDaemon()).packageRoot, root)
+})

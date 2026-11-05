@@ -497,16 +497,32 @@ async function spawnDaemon(): Promise<DaemonMetadata> {
   return info;
 }
 
-// Reuses the running daemon only when it runs this CLI version from this package. A daemon left running by
-// another version (for example a 1.5.x one, whose daemon.json has no cliVersion or packageRoot) serves that
-// version's dashboard files, which an upgrade may have removed, so it is stopped and replaced.
+// Whether a running daemon can be reused: it runs this CLI version, from this package or from another install
+// that still holds that version. Two installs of one version exist when both npm packages are installed
+// separately, and switching commands must not restart the daemon. A daemon from another version (for example
+// a 1.5.x one, whose daemon.json has no cliVersion or packageRoot), or from an install that has since been
+// upgraded or removed, serves dashboard files that may be gone, so it is replaced.
+async function daemonIsCurrent(existing: DaemonMetadata): Promise<boolean> {
+  if (!existing.cliVersion || !existing.packageRoot) return false;
+  if (existing.cliVersion !== (await readCliVersion())) return false;
+  if (existing.packageRoot === packageRoot) return true;
+  try {
+    const recorded = JSON.parse(await readFile(path.join(existing.packageRoot, "package.json"), "utf-8")) as {
+      version?: unknown;
+    };
+    return recorded.version === existing.cliVersion;
+  } catch {
+    return false;
+  }
+}
+
 async function ensureDaemon(): Promise<{
   daemon: DaemonMetadata;
   fresh: boolean;
 }> {
   const existing = await isDaemonRunning();
   if (existing) {
-    if (existing.cliVersion === (await readCliVersion()) && existing.packageRoot === packageRoot) {
+    if (await daemonIsCurrent(existing)) {
       return { daemon: existing, fresh: false };
     }
     // Check what a new daemon needs before stopping the old one.
