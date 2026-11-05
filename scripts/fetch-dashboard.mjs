@@ -15,10 +15,15 @@
  * holding a dashboard-manifest.json named "gtfs-viz-dashboard". Anything else is refused untouched, and so is
  * the current directory, the package root, $HOME, / or a parent of one of them, even when empty.
  *
+ * On start, if --out is missing and exactly one .<name>.old-* sibling holds a valid dashboard (a crash between
+ * the two renames of an earlier run), it is restored first. Names that the file system stores as one file
+ * (case or NFC/NFD variants) are refused with a clear error.
+ *
  * --allow-unpinned skips only the checksum comparison, with a warning. It is for development; publishing and
  * CI never use it.
  */
 import { createHash, randomBytes } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -162,6 +167,10 @@ const relativeEntryPath = (name, isDirectory) => {
   return relative;
 };
 
+// Case-insensitive, normalization-insensitive file systems (APFS, NTFS) store names that differ only in case
+// or Unicode normalization (NFC/NFD) as one file, so the archive may not hold two such names.
+const sameNameKey = (relative) => relative.normalize("NFC").toLowerCase();
+
 // Reads a POSIX ustar archive into { directories, files } keyed by path relative to dashboard/.
 const readUstar = (tar) => {
   const directories = new Set();
@@ -200,8 +209,8 @@ const readUstar = (tar) => {
     const dataStart = offset + 512;
     const dataEnd = dataStart + size;
     if (dataEnd > tar.length) fail(`truncated tar archive: ${JSON.stringify(fullName)} is cut short`);
-    const key = relative.toLowerCase();
-    if (seen.has(key)) fail(`duplicate entry ${JSON.stringify(fullName)} in the archive`);
+    const key = sameNameKey(relative);
+    if (seen.has(key)) fail(`duplicate entry ${JSON.stringify(fullName)} in the archive (names that differ only in case or Unicode normalization count as one)`);
     seen.add(key);
     if (isDirectory) directories.add(relative);
     else if (!relative) fail("unsafe entry: dashboard/ must be a directory");
@@ -209,14 +218,33 @@ const readUstar = (tar) => {
     offset = dataStart + Math.ceil(size / 512) * 512;
   }
   // No entry may sit below a path that the archive gives as a file.
+  const fileKeys = new Set([...files.keys()].map(sameNameKey));
   for (const entry of [...directories, ...files.keys()]) {
     const parts = entry.split("/");
     for (let depth = 1; depth < parts.length; depth += 1) {
-      if (files.has(parts.slice(0, depth).join("/")))
+      if (fileKeys.has(sameNameKey(parts.slice(0, depth).join("/"))))
         fail(`unsafe entry dashboard/${entry}: its parent is a file in the archive`);
     }
   }
   return { directories, files };
+};
+
+// What is wrong with a parsed dashboard manifest, or undefined when it is valid.
+const manifestProblem = (manifest) => {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
+    return `${TOP}${MANIFEST} is not a JSON object (malformed manifest)`;
+  if (manifest.cliApi !== CLI_API)
+    return `the dashboard manifest declares cliApi ${JSON.stringify(manifest.cliApi)}; this CLI serves CLI API ${CLI_API} and needs cliApi: ${CLI_API}`;
+  const keys = Object.keys(manifest).sort().join(",");
+  if (keys !== "cliApi,commit,name,version")
+    return `malformed dashboard manifest: expected exactly the keys name, version, commit and cliApi, got ${keys}`;
+  if (manifest.name !== "gtfs-viz-dashboard")
+    return `malformed dashboard manifest: name is ${JSON.stringify(manifest.name)}, not "gtfs-viz-dashboard"`;
+  if (typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(manifest.version))
+    return `malformed dashboard manifest: version ${JSON.stringify(manifest.version)} is not a semver version`;
+  if (typeof manifest.commit !== "string" || !/^[0-9a-f]{40}$/.test(manifest.commit))
+    return `malformed dashboard manifest: commit ${JSON.stringify(manifest.commit)} is not a 40-hex git commit`;
+  return undefined;
 };
 
 const checkManifest = (files) => {
@@ -229,19 +257,8 @@ const checkManifest = (files) => {
     if (error instanceof FetchDashboardError) throw error;
     fail(`${TOP}${MANIFEST} is not valid JSON (malformed manifest)`);
   }
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
-    fail(`${TOP}${MANIFEST} is not a JSON object (malformed manifest)`);
-  if (manifest.cliApi !== CLI_API)
-    fail(`the dashboard manifest declares cliApi ${JSON.stringify(manifest.cliApi)}; this CLI serves CLI API ${CLI_API} and needs cliApi: ${CLI_API}`);
-  const keys = Object.keys(manifest).sort().join(",");
-  if (keys !== "cliApi,commit,name,version")
-    fail(`malformed dashboard manifest: expected exactly the keys name, version, commit and cliApi, got ${keys}`);
-  if (manifest.name !== "gtfs-viz-dashboard")
-    fail(`malformed dashboard manifest: name is ${JSON.stringify(manifest.name)}, not "gtfs-viz-dashboard"`);
-  if (typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(manifest.version))
-    fail(`malformed dashboard manifest: version ${JSON.stringify(manifest.version)} is not a semver version`);
-  if (typeof manifest.commit !== "string" || !/^[0-9a-f]{40}$/.test(manifest.commit))
-    fail(`malformed dashboard manifest: commit ${JSON.stringify(manifest.commit)} is not a 40-hex git commit`);
+  const problem = manifestProblem(manifest);
+  if (problem) fail(problem);
   if (!files.has("index.html")) fail(`the archive has no ${TOP}index.html`);
   return manifest;
 };
@@ -295,6 +312,39 @@ const checkOutDir = async (outDir) => {
   return refuse(`it is not a dashboard directory (it is not empty and has no ${MANIFEST} naming "gtfs-viz-dashboard")`);
 };
 
+// install() renames the old dashboard to .<base>.old-<tag> and then the new one into place. A crash between the
+// two renames leaves `outDir` missing; when exactly one such copy holds a valid dashboard, put it back.
+const restoreInterruptedSwap = async (outDir) => {
+  const missing = await lstat(outDir).then(
+    () => false,
+    (error) => error.code === "ENOENT",
+  );
+  if (!missing) return;
+  const parent = path.dirname(outDir);
+  const prefix = `.${path.basename(outDir)}.old-`;
+  const copies = (await readdir(parent).catch(() => [])).filter((name) => name.startsWith(prefix));
+  if (copies.length > 1) {
+    console.error(`fetch-dashboard: ${outDir} is missing and ${copies.length} older copies (${prefix}*) sit next to it; restoring none of them`);
+    return;
+  }
+  if (copies.length !== 1) return;
+  const copy = path.join(parent, copies[0]);
+  if (!(await lstat(copy).catch(() => null))?.isDirectory()) return;
+  const manifestFile = path.join(copy, MANIFEST);
+  if (!(await lstat(manifestFile).catch(() => null))?.isFile()) return;
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+  } catch {
+    return;
+  }
+  if (manifestProblem(manifest)) return;
+  await rename(copy, outDir);
+  console.error(
+    `fetch-dashboard: restored ${outDir} (dashboard ${manifest.version}) from ${copies[0]}, left behind by an interrupted update`,
+  );
+};
+
 // Writes the validated entries to a temporary sibling of `outDir`, then swaps it into place.
 const install = async ({ directories, files }, outDir) => {
   const parent = path.dirname(outDir);
@@ -310,17 +360,27 @@ const install = async ({ directories, files }, outDir) => {
     if (!target.startsWith(staging + path.sep)) fail(`unsafe path dashboard/${relative}`);
     return target;
   };
+  let current = "";
   try {
     await mkdir(staging, { mode: 0o755 });
-    for (const directory of [...directories].filter(Boolean).sort())
+    for (const directory of [...directories].filter(Boolean).sort()) {
+      current = directory;
       await mkdir(inside(directory), { recursive: true, mode: 0o755 });
+    }
     for (const [relative, body] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
+      current = relative;
       const target = inside(relative);
       await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
       await writeFile(target, body, { mode: 0o644, flag: "wx" });
     }
   } catch (error) {
     await rm(staging, { recursive: true, force: true });
+    // Two entries that this file system stores under one name (case, NFC/NFD or another folding).
+    if (["EEXIST", "ENOTDIR", "EISDIR"].includes(error?.code))
+      fail(
+        `the archive entry dashboard/${current} collides with another entry on this file system ` +
+          `(their names differ only in case or Unicode normalization) (${error.code}); the existing dashboard was left untouched`,
+      );
     throw error;
   }
   if (existing) await rename(outDir, previous);
@@ -342,6 +402,8 @@ const main = async () => {
   }
   const lockFile = path.resolve(options.lock ?? path.join(packageRoot, "dashboard.lock.json"));
   const outDir = path.resolve(options.out ?? path.join(packageRoot, "dashboard"));
+  // First undo an interrupted swap, so a failure below still leaves the previous dashboard in place.
+  await restoreInterruptedSwap(outDir);
   // Refuse a non-dashboard --out before downloading anything; install() checks again before the swap.
   await checkOutDir(outDir);
   const lock = await readLock(lockFile);
@@ -380,7 +442,21 @@ const main = async () => {
   );
 };
 
-main().catch((error) => {
-  console.error(`fetch-dashboard: ${error instanceof FetchDashboardError ? error.message : error.stack ?? error}`);
-  process.exitCode = 1;
-});
+export { FetchDashboardError, install };
+
+// Runs only as a script (`node scripts/fetch-dashboard.mjs`); tests import install() directly.
+const invokedAsScript = (() => {
+  try {
+    return realpathSync(process.argv[1] ?? "") === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+})();
+if (invokedAsScript) {
+  main().catch((error) => {
+    // Our own failures and file system errors (EACCES, ENOSPC, …) are reported as one line, not a stack trace.
+    const clear = error instanceof FetchDashboardError || typeof error?.code === "string";
+    console.error(`fetch-dashboard: ${clear ? error.message : error?.stack ?? error}`);
+    process.exitCode = 1;
+  });
+}

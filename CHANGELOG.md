@@ -45,6 +45,12 @@ see its CHANGELOG for earlier versions.
   source, without escape sequences, control or bidi characters.
 - `scripts/fetch-dashboard.mjs` fails closed: a checksum mismatch, a non-ustar archive, absolute paths,
   `..`, links, devices or entries outside `dashboard/` leave the existing dashboard untouched.
+- `scripts/fetch-dashboard.mjs --out` only ever replaces a dashboard: a missing or empty directory, or one
+  holding a `gtfs-viz-dashboard` manifest. Any other directory, a symbolic link, and the current
+  directory, the package root, `$HOME`, `/` or a parent of them are refused untouched.
+- Archive names that the file system would store as one file (case or Unicode NFC/NFD variants) are
+  refused with a clear error, and a dashboard left in `.dashboard.old-*` by an interrupted update is
+  restored on the next run.
 
 ### Build notes
 - npm with a committed `package-lock.json`: `npm ci`, `npm run check`, `npm run build`

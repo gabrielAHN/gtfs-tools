@@ -287,7 +287,11 @@ named queries) lives in `src/gtfs/`.
 created), empty, or an installed dashboard: one holding a `dashboard-manifest.json` whose `name` is
 `gtfs-viz-dashboard`. Anything else is refused with "refusing to replace … not a dashboard directory"
 and left untouched, before anything is downloaded. So are a symbolic link, the current directory, the
-package root, `$HOME`, `/` and any parent of them, even when empty.
+package root, `$HOME`, `/` and any parent of them, even when empty. If an earlier run was interrupted
+between its two renames, leaving `--out` missing and exactly one `.<name>.old-*` copy holding a valid
+dashboard next to it, the next run restores that copy before doing anything else and says so. An
+archive with two names that the file system stores as one file (case or Unicode NFC/NFD variants, as
+on APFS) is refused with a clear error.
 
 `--allow-unpinned` skips only the checksum, with a warning, and is for development only, for example
 with gtfs-viz's moving `dashboard-latest` pre-release:

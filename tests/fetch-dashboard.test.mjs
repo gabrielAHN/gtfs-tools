@@ -11,6 +11,7 @@ import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { gzipSync } from "node:zlib"
+import { FetchDashboardError, install } from "../scripts/fetch-dashboard.mjs"
 
 const script = fileURLToPath(new URL("../scripts/fetch-dashboard.mjs", import.meta.url))
 
@@ -245,4 +246,102 @@ test("--out creates missing parent directories and replaces an older dashboard",
   assert.equal(replaced.status, 0, replaced.stderr)
   assert.deepEqual(await listing(deep), ["dashboard-manifest.json", "index.html"])
   assert.deepEqual((await listing(path.dirname(deep))).filter((name) => name.startsWith(".")), [], "no staging or old copy is left")
+})
+
+test("names that one file system stores as one file give a clear error, not a stack trace", async (t) => {
+  // In the archive: NFC and NFD spellings of one name, as on APFS.
+  const nfc = "caf\u00e9.txt"
+  const nfd = "cafe\u0301.txt"
+  assert.notEqual(nfc, nfd)
+  assert.equal(nfc, nfd.normalize("NFC"))
+  const duplicate = gzipSync(tarOf([...goodEntries(), [`dashboard/${nfc}`, file("1")], [`dashboard/${nfd}`, file("2")]]))
+  const { result } = await fetchFrom(t, duplicate)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /duplicate entry .*Unicode normalization/)
+  assert.doesNotMatch(result.stderr, /\n\s+at /)
+  await refuses(t, duplicate, /duplicate entry/)
+
+  // At extraction: a collision the file system reports (EEXIST) becomes the same kind of error, and the
+  // existing dashboard and its parent are untouched.
+  const dir = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-fetch-collide-"))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const out = path.join(dir, "dashboard")
+  await mkdir(out)
+  await writeFile(path.join(out, "dashboard-manifest.json"), previousManifest)
+  await writeFile(path.join(out, "previous.txt"), "previous dashboard")
+  const entries = { directories: new Set(["", "x"]), files: new Map([["x", Buffer.from("1")], ["index.html", Buffer.from("i")]]) }
+  await assert.rejects(install(entries, out), (error) => {
+    assert.ok(error instanceof FetchDashboardError, String(error?.stack))
+    assert.match(error.message, /dashboard\/x collides with another entry on this file system .*EEXIST/)
+    return true
+  })
+  assert.deepEqual((await readdir(out)).sort(), previousDashboard)
+  assert.deepEqual(await readdir(dir), ["dashboard"], "no staging directory is left behind")
+  // The real NFC/NFD pair: installs both names where the file system keeps them apart, and otherwise fails
+  // with the clear error (APFS).
+  const pair = { directories: new Set([""]), files: new Map([[nfc, Buffer.from("1")], [nfd, Buffer.from("2")], ["index.html", Buffer.from("i")]]) }
+  try {
+    await install(pair, out)
+    assert.equal((await readdir(out)).length, 3)
+  } catch (error) {
+    assert.ok(error instanceof FetchDashboardError, String(error?.stack))
+    assert.match(error.message, /collides with another entry on this file system/)
+    assert.deepEqual((await readdir(out)).sort(), previousDashboard)
+  }
+})
+
+// A parent directory as a crash between install()'s two renames leaves it: no dashboard/, and the previous
+// dashboard renamed to .dashboard.old-<tag>.
+const interrupted = async (t, copies) => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-fetch-restore-"))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  for (const [name, manifest] of copies) {
+    await mkdir(path.join(dir, name))
+    await writeFile(path.join(dir, name, "dashboard-manifest.json"), manifest)
+    await writeFile(path.join(dir, name, "index.html"), `<title>${name}</title>`)
+  }
+  const bytes = gzipSync(tarOf(goodEntries()))
+  const archive = path.join(dir, "gtfs-viz-dashboard.tar.gz")
+  await writeFile(archive, bytes)
+  const lockFor = async (sha) => {
+    const lock = path.join(dir, `lock-${sha.slice(0, 8)}.json`)
+    await writeFile(lock, JSON.stringify({ url: "https://example.invalid/unused", sha256: sha }))
+    return lock
+  }
+  const out = path.join(dir, "dashboard")
+  const fetch = async (sha) => run(["--from", archive, "--lock", await lockFor(sha), "--out", out])
+  return { dir, out, bytes, fetch }
+}
+
+test("an interrupted swap is undone first: exactly one .dashboard.old-* copy with a valid manifest is restored", async (t) => {
+  const old = ".dashboard.old-123-0123456789ab"
+  const { dir, out, bytes, fetch } = await interrupted(t, [[old, previousManifest]])
+  // Even when this run then fails (checksum mismatch), the previous dashboard is back in place.
+  const failed = await fetch("e".repeat(64))
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, /sha256 mismatch/)
+  assert.match(failed.stderr, new RegExp(`restored .*dashboard \\(dashboard 1\\.5\\.9\\) from ${old.replaceAll(".", "\\.")}`))
+  assert.equal(await readFile(path.join(out, "index.html"), "utf8"), `<title>${old}</title>`)
+  assert.deepEqual((await readdir(dir)).filter((name) => name.startsWith(".")), [])
+  // The next good run replaces the restored dashboard as usual.
+  const installed = await fetch(sha256(bytes))
+  assert.equal(installed.status, 0, installed.stderr)
+  assert.doesNotMatch(installed.stderr, /restored/)
+  assert.equal(await readFile(path.join(out, "index.html"), "utf8"), "<!doctype html><title>dashboard</title>")
+})
+
+test("an interrupted swap is left alone when the old copy is ambiguous or not a valid dashboard", async (t) => {
+  const two = await interrupted(t, [[".dashboard.old-1-aaaaaaaaaaaa", previousManifest], [".dashboard.old-2-bbbbbbbbbbbb", previousManifest]])
+  const ambiguous = await two.fetch("e".repeat(64))
+  assert.notEqual(ambiguous.status, 0)
+  assert.match(ambiguous.stderr, /2 older copies \(\.dashboard\.old-\*\) sit next to it; restoring none of them/)
+  assert.deepEqual((await readdir(two.dir)).filter((name) => name.startsWith(".")).length, 2)
+  assert.deepEqual((await readdir(two.dir)).includes("dashboard"), false)
+
+  const foreign = await interrupted(t, [[".dashboard.old-1-aaaaaaaaaaaa", JSON.stringify({ name: "something-else" })]])
+  const notRestored = await foreign.fetch("e".repeat(64))
+  assert.notEqual(notRestored.status, 0)
+  assert.doesNotMatch(notRestored.stderr, /restored/)
+  assert.deepEqual((await readdir(foreign.dir)).includes("dashboard"), false)
+  assert.deepEqual((await readdir(foreign.dir)).filter((name) => name.startsWith(".")), [".dashboard.old-1-aaaaaaaaaaaa"])
 })
