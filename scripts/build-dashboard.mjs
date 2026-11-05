@@ -300,7 +300,9 @@ const install = async ({ directories, files }, outDir) => {
     await mkdir(staging, { mode: 0o755 });
     for (const directory of [...directories].filter(Boolean).sort()) {
       current = directory;
-      await mkdir(inside(directory), { recursive: true, mode: 0o755 });
+      // Not recursive: parents come first in sorted order, so an existing directory here means two names
+      // that this file system stores as one (for example "s" and "\u017f" on APFS) and is a collision.
+      await mkdir(inside(directory), { mode: 0o755 });
     }
     for (const [relative, body] of [...files].sort(([a], [b]) => (a < b ? -1 : 1))) {
       current = relative;
@@ -314,7 +316,7 @@ const install = async ({ directories, files }, outDir) => {
     if (["EEXIST", "ENOTDIR", "EISDIR"].includes(error?.code))
       fail(
         `the dashboard entry ${TOP}${current} collides with another entry on this file system ` +
-          `(their names differ only in case or Unicode normalization) (${error.code}); the existing dashboard was left untouched`,
+          `(their names differ only in case, Unicode normalization or another folding) (${error.code}); the existing dashboard was left untouched`,
       );
     throw error;
   }
