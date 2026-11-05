@@ -14,7 +14,7 @@ const FORCE_HINT = 'duckdb -c "FORCE INSTALL gtfs FROM community"'
 
 const clientModule = async () => {
   const result = await build({
-    entryPoints: [new URL("../../duckdb-client/lib/client.ts", import.meta.url).pathname],
+    entryPoints: [new URL("../src/gtfs/client.ts", import.meta.url).pathname],
     bundle: true,
     format: "esm",
     platform: "neutral",

@@ -1,4 +1,4 @@
-import { importSql, addGeomColumnsSql } from "@gtfs-viz/duckdb-client";
+import { importSql, addGeomColumnsSql } from "../gtfs/ingestion.js";
 export type ImportOptions = { databasePath: string; directory: string };
 export async function buildImportSteps(opts: ImportOptions): Promise<string[]> {
   return [

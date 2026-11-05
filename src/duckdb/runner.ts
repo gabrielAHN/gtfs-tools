@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
-import { createExtensionClient } from "@gtfs-viz/duckdb-client/client";
+import { createExtensionClient } from "../gtfs/client.js";
 import { buildDuckDbSessionSql } from "./config.js";
 
 const duckdbBin = process.env.DUCKDB_BIN || "duckdb";

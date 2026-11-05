@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { stdin as processStdin, stdout as processStdout } from "node:process";
 import { fileURLToPath } from "node:url";
 
-import { dashboardViewForNamedQuery, sqlForNamedQuery } from "@gtfs-viz/duckdb-client";
+import { dashboardViewForNamedQuery, sqlForNamedQuery } from "./gtfs/named-queries.js";
 
 import { parseArgs, getFlagString, hasFlag, wantsDataOutput } from "./args.js";
 import type { Args } from "./args.js";
