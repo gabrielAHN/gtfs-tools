@@ -1,0 +1,125 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build, check and test
+    runs-on: ubuntu-24.04
+    steps:
+      # No token stays in .git/config while npm ci runs dependency install scripts. The gtfs-viz submodule
+      # holds the web app the dashboard is built from.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+
+      # Builds the CLI, then the dashboard from the gtfs-viz submodule (yarn install --frozen-lockfile and
+      # yarn build:dashboard there, with the runner's yarn 1.x) and installs it into dashboard/.
+      - run: npm run build
+
+      # The installed dashboard is the CLI-mode build of the pinned submodule commit.
+      - name: Dashboard built from the gtfs-viz submodule
+        run: |
+          PINNED=$(git rev-parse HEAD:gtfs-viz)
+          export PINNED
+          node -e '
+            const manifest = require("./dashboard/dashboard-manifest.json");
+            console.log(JSON.stringify(manifest));
+            if (manifest.commit !== process.env.PINNED || manifest.cliApi !== 1) {
+              console.error("::error::dashboard/dashboard-manifest.json is not the cliApi 1 build of gtfs-viz " + process.env.PINNED);
+              process.exit(1);
+            }
+          '
+
+      - name: Unit tests
+        run: node --test tests/*.test.mjs
+
+      # The compatibility package's prepack generates skills/gtfs-viz from skills/gtfs-tools; 1.5.x's own
+      # `gtfs-viz update --provider <p>` copies it after upgrading.
+      - name: Package contents
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          npm pack --dry-run --json ./compat/gtfs-viz-cli > "$RUNNER_TEMP/compat-pack.json"
+          node -e '
+            const fs = require("node:fs");
+            const files = (file) => new Set(JSON.parse(fs.readFileSync(file, "utf8"))[0].files.map((f) => f.path));
+            const tools = files(process.env.RUNNER_TEMP + "/pack.json");
+            const compat = files(process.env.RUNNER_TEMP + "/compat-pack.json");
+            const missing = [
+              ...["dist/index.js", "dashboard/index.html", "dashboard/dashboard-manifest.json", "skills/gtfs-tools/SKILL.md", "scripts/postinstall.mjs", "scripts/preuninstall.mjs", "README.md"].filter((f) => !tools.has(f)),
+              ...["bin/gtfs-viz.js", "skills/gtfs-viz/SKILL.md", "README.md"].filter((f) => !compat.has(f)).map((f) => "compat/gtfs-viz-cli/" + f),
+            ];
+            if (missing.length) { console.error("Missing from the npm packages: " + missing.join(", ")); process.exit(1); }
+            // The gtfs-viz submodule (sources and node_modules) is never published, nor are source maps.
+            const unwanted = [...tools].filter((f) => f.startsWith("gtfs-viz/") || f.endsWith(".map"));
+            if (unwanted.length) { console.error("Must not be in @gabrielahn/gtfs-tools: " + unwanted.slice(0, 20).join(", ")); process.exit(1); }
+            console.log("@gabrielahn/gtfs-tools: " + tools.size + " files, none under gtfs-viz/");
+          '
+
+  extension-integration:
+    name: DuckDB integration (community gtfs)
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      DUCKDB_BIN: ${{ github.workspace }}/build/duckdb-cli/duckdb
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      # No token stays in .git/config while npm ci runs dependency install scripts. The gtfs-viz submodule
+      # holds the web app the dashboard is built from.
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # The gtfs extension comes from the DuckDB community repository (signed), the same source the CLI
+      # installs from by default. It goes in its own directory so the dependency cache holds only
+      # spatial, httpfs and aws.
+      - name: Install DuckDB CLI v2.0.0, spatial, httpfs, aws and the community gtfs extension
+        run: |
+          mkdir -p build/duckdb-cli
+          curl -fsSL -o build/duckdb-cli/cli.tar.gz https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz
+          tar -xzf build/duckdb-cli/cli.tar.gz -C build/duckdb-cli
+          echo "$GITHUB_WORKSPACE/build/duckdb-cli" >> "$GITHUB_PATH"
+          "$DUCKDB_BIN" :memory: -c "SET extension_directories=['$GITHUB_WORKSPACE/build/deps']; INSTALL spatial; INSTALL httpfs; INSTALL aws; SELECT version(); PRAGMA platform;"
+          "$DUCKDB_BIN" :memory: -c "SET extension_directories=['$GITHUB_WORKSPACE/build/gtfs']; INSTALL gtfs FROM community; SELECT extension_name, extension_version, installed_from FROM duckdb_extensions() WHERE extension_name = 'gtfs';"
+          echo "GTFS_DEPENDENCY_CACHE=$GITHUB_WORKSPACE/build/deps" >> "$GITHUB_ENV"
+          echo "GTFS_EXTENSION=$GITHUB_WORKSPACE/build/gtfs/v2.0.0/linux_amd64/gtfs.duckdb_extension" >> "$GITHUB_ENV"
+          test -f "$GITHUB_WORKSPACE/build/gtfs/v2.0.0/linux_amd64/gtfs.duckdb_extension"
+
+      - run: npm ci
+      # The tests need the CLI bundle (dist/index.js), not the dashboard.
+      - run: npm run build:cli
+
+      - name: Tests with the community gtfs extension (0 skipped)
+        run: |
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination="$RUNNER_TEMP/tests.tap" tests/*.test.mjs
+          grep -E '^# (tests|pass|fail|skipped|skip) ' "$RUNNER_TEMP/tests.tap"
+          if ! grep -Eq '^# (skipped|skip) 0$' "$RUNNER_TEMP/tests.tap"; then
+            echo "::error::Some tests were skipped; DUCKDB_BIN and GTFS_EXTENSION must enable every integration test"
+            exit 1
+          fi

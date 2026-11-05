@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.tsc-out/
+# Built from the gtfs-viz submodule by npm run dashboard (scripts/build-dashboard.mjs).
+dashboard/
+# Generated from skills/gtfs-tools by the compatibility package's prepack (compat/gtfs-viz-cli/scripts/generate-skill.mjs).
+compat/gtfs-viz-cli/skills/
+*.tgz
+*.log
+.DS_Store
