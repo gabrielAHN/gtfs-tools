@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.tsc-out/
+# Fetched at build time from the pinned gtfs-viz release asset (dashboard.lock.json).
+dashboard/
+*.tgz
+*.log
+.DS_Store

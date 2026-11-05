@@ -1,17 +1,20 @@
 {
-  "name": "@gabrielahn/gtfs-viz-cli",
+  "name": "@gabrielahn/gtfs-tools",
   "version": "1.6.0",
-  "description": "Lightweight GTFS data visualizer and editor — import, browse stations/stops/routes/pathways, edit connections, compare schedules, and export feeds from the terminal with DuckDB and a browser dashboard",
+  "description": "GTFS command-line tools: import feeds (local, http(s), s3, r2), browse stations/stops/routes/pathways, edit connections, trips and schedules, compare service and export from the terminal with DuckDB and the gtfs extension, plus a local browser dashboard",
   "license": "MIT",
   "author": "Gabriel AHN",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/gabrielAHN/gtfs-viz.git",
-    "directory": "packages/cli"
+    "url": "git+https://github.com/gabrielAHN/gtfs-tools.git"
   },
-  "homepage": "https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-viz/cli/",
+  "homepage": "https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-tools/cli/",
+  "bugs": {
+    "url": "https://github.com/gabrielAHN/gtfs-tools/issues"
+  },
   "keywords": [
     "gtfs",
+    "gtfs-tools",
     "transit",
     "duckdb",
     "cli",
@@ -25,7 +28,7 @@
     "export"
   ],
   "bin": {
-    "gtfs-viz": "dist/index.js"
+    "gtfs-tools": "dist/index.js"
   },
   "files": [
     "dist",
@@ -39,14 +42,15 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "rm -rf dist .tsc-out && tsc -p tsconfig.json && node scripts/bundle.mjs && chmod +x dist/index.js && node scripts/copy-dashboard.mjs",
+    "build:cli": "tsc -p tsconfig.json && node scripts/bundle.mjs && chmod +x dist/index.js",
+    "build": "npm run build:cli",
     "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test tests/*.test.mjs",
     "postinstall": "node scripts/postinstall.mjs",
     "preuninstall": "node scripts/preuninstall.mjs",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "@gtfs-viz/duckdb-client": "*",
     "@types/node": "^22.10.5",
     "esbuild": "^0.28.0",
     "typescript": "~5.6.2"

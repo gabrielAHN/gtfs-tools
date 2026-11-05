@@ -1,20 +1,21 @@
 #!/usr/bin/env node
 /**
- * Bundles the CLI into a single dist/index.js using esbuild.
- * Inlines all @gtfs-viz/* imports so the published package has zero npm dependencies.
+ * Bundles the CLI into a single dist/index.js with esbuild, so the published package has no runtime
+ * npm dependencies (only Node built-ins stay external).
  *
- * tsc outputs to .tsc-out/, this script bundles into dist/index.js.
+ * tsc emits to .tsc-out/; this script bundles .tsc-out/index.js into a fresh dist/index.js.
  */
 import { build } from "esbuild";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { builtinModules } from "node:module";
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const external = builtinModules.flatMap((m) => [m, `node:${m}`]);
 
+await rm(path.join(root, "dist"), { recursive: true, force: true });
 await mkdir(path.join(root, "dist"), { recursive: true });
 
 await build({
