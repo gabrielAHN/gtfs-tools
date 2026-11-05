@@ -48,6 +48,10 @@ export type DaemonMetadata = {
   apiUrl: string;
   startedAt: string;
   datasetFile: string;
+  // The CLI version and package directory the daemon runs from. A CLI reuses a daemon only when both match
+  // its own; daemons from 1.5.x and earlier have neither.
+  cliVersion?: string;
+  packageRoot?: string;
 };
 
 const sessionRoot = path.join(os.tmpdir(), "gtfs-viz-cli");
@@ -137,6 +141,12 @@ export const readDaemonMetadata = async (): Promise<DaemonMetadata | null> => {
 
 export const removeDaemonMetadata = async () => {
   await rm(daemonFile, { force: true });
+};
+
+// Removes daemon.json only while it still describes the daemon with this pid.
+export const removeDaemonMetadataFor = async (pid: number) => {
+  const current = await readDaemonMetadata();
+  if (current && current.pid === pid) await removeDaemonMetadata();
 };
 
 export const randomId = () =>

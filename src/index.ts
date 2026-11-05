@@ -55,7 +55,7 @@ import type {
   SessionStatus,
   DaemonMetadata,
 } from "./session/metadata.js";
-import { isDaemonRunning, stopDaemon } from "./session/daemon.js";
+import { isDaemonRunning, stopDaemon, stopStaleDaemon } from "./session/daemon.js";
 import { IMPORT_USAGE, parseFeedSource, redactSource, sourceLabel } from "./remote/source.js";
 import type { FeedSource } from "./remote/source.js";
 import { safeTerminalText } from "./output/safe-text.js";
@@ -497,12 +497,29 @@ async function spawnDaemon(): Promise<DaemonMetadata> {
   return info;
 }
 
+// Reuses the running daemon only when it runs this CLI version from this package. A daemon left running by
+// another version (for example a 1.5.x one, whose daemon.json has no cliVersion or packageRoot) serves that
+// version's dashboard files, which an upgrade may have removed, so it is stopped and replaced.
 async function ensureDaemon(): Promise<{
   daemon: DaemonMetadata;
   fresh: boolean;
 }> {
   const existing = await isDaemonRunning();
-  if (existing) return { daemon: existing, fresh: false };
+  if (existing) {
+    if (existing.cliVersion === (await readCliVersion()) && existing.packageRoot === packageRoot) {
+      return { daemon: existing, fresh: false };
+    }
+    // Check what a new daemon needs before stopping the old one.
+    await readDatasetState();
+    await validateAppDist();
+    const outcome = await stopStaleDaemon(existing);
+    const from = existing.cliVersion ? `version ${existing.cliVersion}` : "an older version";
+    if (outcome === "stopped" || outcome === "killed") {
+      console.error(`Stopped the dashboard daemon from ${from} (pid ${existing.pid}); starting a new one.`);
+    } else if (outcome === "left-running") {
+      console.error(`The dashboard daemon from ${from} (pid ${existing.pid}) did not stop; starting a new one.`);
+    }
+  }
   const daemon = await spawnDaemon();
   return { daemon, fresh: true };
 }
@@ -567,6 +584,8 @@ async function runDaemon(): Promise<void> {
     apiUrl: sessionMeta.apiUrl,
     startedAt: new Date().toISOString(),
     datasetFile: dataset.fileName,
+    cliVersion: await readCliVersion(),
+    packageRoot,
   };
   await writeDaemonMetadata(daemonMeta);
 
