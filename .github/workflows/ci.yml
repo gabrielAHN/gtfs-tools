@@ -1,0 +1,107 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build:
+    name: Build, check and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run check
+
+      # Builds the CLI and installs the gtfs-viz dashboard pinned in dashboard.lock.json (sha256-checked;
+      # never --allow-unpinned here).
+      - run: npm run build
+
+      - name: Unit tests
+        run: node --test tests/*.test.mjs
+
+      - name: Package contents
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
+          npm pack --dry-run --json ./compat/gtfs-viz-cli > "$RUNNER_TEMP/compat-pack.json"
+          node -e '
+            const fs = require("node:fs");
+            const files = (file) => new Set(JSON.parse(fs.readFileSync(file, "utf8"))[0].files.map((f) => f.path));
+            const tools = files(process.env.RUNNER_TEMP + "/pack.json");
+            const compat = files(process.env.RUNNER_TEMP + "/compat-pack.json");
+            const missing = [
+              ...["dist/index.js", "dashboard/index.html", "dashboard/dashboard-manifest.json", "skills/gtfs-tools/SKILL.md", "scripts/postinstall.mjs", "scripts/preuninstall.mjs", "README.md"].filter((f) => !tools.has(f)),
+              ...["bin/gtfs-viz.js", "README.md"].filter((f) => !compat.has(f)).map((f) => "compat/gtfs-viz-cli/" + f),
+            ];
+            if (missing.length) { console.error("Missing from the npm packages: " + missing.join(", ")); process.exit(1); }
+          '
+
+  extension-integration:
+    name: GTFS DuckDB integration
+    needs: build
+    runs-on: ubuntu-24.04
+    env:
+      EXTENSION_REPOSITORY: gabrielAHN/gtfs-duckdb
+      EXTENSION_BRANCH: ${{ vars.GTFS_EXTENSION_BRANCH || 'main' }}
+      GTFS_STAGED_REPOSITORY: ${{ github.workspace }}/build/staged-repository
+      DUCKDB_BIN: ${{ github.workspace }}/build/duckdb-cli/duckdb
+      AWS_EC2_METADATA_DISABLED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Download staged extension repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run_id=$(gh run list --repo "$EXTENSION_REPOSITORY" --workflow MainDistributionPipeline.yml --branch "$EXTENSION_BRANCH" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ]; then
+            echo "::error::No successful $EXTENSION_REPOSITORY build on $EXTENSION_BRANCH"
+            exit 1
+          fi
+          echo "Using $EXTENSION_REPOSITORY run $run_id ($EXTENSION_BRANCH)"
+          gh run download "$run_id" --repo "$EXTENSION_REPOSITORY" --name gtfs-unsigned-development-repository --dir "$GTFS_STAGED_REPOSITORY"
+          cat "$GTFS_STAGED_REPOSITORY/manifest.json"
+
+      - name: Install DuckDB CLI v2.0.0, spatial, httpfs and aws
+        run: |
+          mkdir -p build/duckdb-cli
+          curl -fsSL -o build/duckdb-cli/cli.tar.gz https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz
+          tar -xzf build/duckdb-cli/cli.tar.gz -C build/duckdb-cli
+          echo "$GITHUB_WORKSPACE/build/duckdb-cli" >> "$GITHUB_PATH"
+          echo "GTFS_DEPENDENCY_CACHE=$HOME/.duckdb/extensions" >> "$GITHUB_ENV"
+          "$DUCKDB_BIN" :memory: -c "INSTALL spatial; INSTALL httpfs; INSTALL aws; SELECT version(); PRAGMA platform;"
+          gunzip -c "$GTFS_STAGED_REPOSITORY/v2.0.0/linux_amd64/gtfs.duckdb_extension.gz" > build/gtfs.duckdb_extension
+          echo "GTFS_EXTENSION=$GITHUB_WORKSPACE/build/gtfs.duckdb_extension" >> "$GITHUB_ENV"
+
+      - run: npm ci
+      # The tests need the CLI bundle (dist/index.js), not the dashboard.
+      - run: npm run build:cli
+
+      - name: Tests with the downloaded extension (0 skipped)
+        run: |
+          node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination="$RUNNER_TEMP/tests.tap" tests/*.test.mjs
+          grep -E '^# (tests|pass|fail|skipped|skip) ' "$RUNNER_TEMP/tests.tap"
+          if ! grep -Eq '^# (skipped|skip) 0$' "$RUNNER_TEMP/tests.tap"; then
+            echo "::error::Some tests were skipped; DUCKDB_BIN and GTFS_EXTENSION must enable every integration test"
+            exit 1
+          fi

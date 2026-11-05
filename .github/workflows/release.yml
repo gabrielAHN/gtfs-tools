@@ -1,0 +1,183 @@
+name: Release & Publish
+
+# A merged PR that bumps the version in package.json (or compat/gtfs-viz-cli/package.json) tags v<version>,
+# creates the GitHub release, then publishes @gabrielahn/gtfs-tools and the @gabrielahn/gtfs-viz-cli
+# compatibility package, in that order. A package whose version is already on npm is skipped.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  version-bump:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      release: ${{ steps.bump.outputs.release }}
+    steps:
+      - name: Check for a version bump
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PATCHES=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
+            --jq '.[] | select(.filename == "package.json" or .filename == "compat/gtfs-viz-cli/package.json") | .patch')
+          if grep -Eq '^\+[[:space:]]*"version":' <<< "$PATCHES"; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "#$PR bumps the version — releasing"
+          else
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "#$PR does not bump the version — skipping release and publish"
+          fi
+
+  release:
+    needs: version-bump
+    if: needs.version-bump.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Both packages publish in lockstep. @gabrielahn/gtfs-viz-cli has a stray 2.0.0 on npm, so 2.0.0 is never
+      # a lockstep version.
+      - name: Check the compatibility package is pinned to the same version
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          node -e '
+            const version = process.env.VERSION;
+            const compat = require("./compat/gtfs-viz-cli/package.json");
+            const problems = [];
+            if (version === "2.0.0") problems.push("2.0.0 is taken by a stray @gabrielahn/gtfs-viz-cli release; pick another version");
+            if (compat.version !== version) problems.push(`compat/gtfs-viz-cli is ${compat.version}, not ${version}`);
+            if (compat.dependencies?.["@gabrielahn/gtfs-tools"] !== version) problems.push(`compat/gtfs-viz-cli depends on @gabrielahn/gtfs-tools ${compat.dependencies?.["@gabrielahn/gtfs-tools"]}, not ${version}`);
+            if (problems.length) { for (const problem of problems) console.error("::error::" + problem); process.exit(1); }
+          '
+
+      - name: Check if release exists
+        id: check
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const tag = process.env.TAG;
+            try {
+              await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              core.info(`Release ${tag} already exists — skipping`);
+              core.setOutput("exists", "true");
+            } catch (error) {
+              if (error.status === 404) {
+                core.setOutput("exists", "false");
+              } else {
+                throw error;
+              }
+            }
+
+      - name: Create tag and release
+        if: steps.check.outputs.exists == 'false'
+        uses: actions/github-script@v7
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PR_BODY: ${{ github.event.pull_request.body || '' }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const tag = process.env.TAG;
+            const prBody = process.env.PR_BODY;
+
+            // Create tag
+            const sha = context.sha;
+            await github.rest.git.createRef({
+              owner,
+              repo,
+              ref: `refs/tags/${tag}`,
+              sha,
+            });
+
+            // Create release with PR body or auto-generated notes
+            const useAutoNotes = !prBody || prBody.trim().length === 0;
+            await github.rest.repos.createRelease({
+              owner,
+              repo,
+              tag_name: tag,
+              name: tag,
+              body: useAutoNotes ? undefined : prBody,
+              generate_release_notes: useAutoNotes,
+              make_latest: "true",
+            });
+            core.info(`Created release ${tag}`);
+
+      - name: Check which packages are already published
+        id: npm_check
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pair in "tools:@gabrielahn/gtfs-tools" "compat:@gabrielahn/gtfs-viz-cli"; do
+            key=${pair%%:*}
+            name=${pair#*:}
+            PUBLISHED=$(npm view "${name}@${VERSION}" version 2>/dev/null || echo "")
+            if [ -n "$PUBLISHED" ]; then
+              echo "${key}_skip=true" >> "$GITHUB_OUTPUT"
+              echo "$name $VERSION already on npm — skipping publish"
+            else
+              echo "${key}_skip=false" >> "$GITHUB_OUTPUT"
+              echo "Will publish $name $VERSION"
+            fi
+          done
+
+      - name: Install dependencies
+        if: steps.npm_check.outputs.tools_skip != 'true'
+        run: npm ci
+
+      # prepublishOnly runs npm run build: the CLI bundle plus the dashboard pinned in dashboard.lock.json,
+      # checked against its sha256 (never --allow-unpinned).
+      - name: Publish @gabrielahn/gtfs-tools to npm
+        if: steps.npm_check.outputs.tools_skip != 'true'
+        run: npm publish --access public --tag latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @gabrielahn/gtfs-viz-cli to npm
+        if: steps.npm_check.outputs.compat_skip != 'true'
+        working-directory: compat/gtfs-viz-cli
+        run: npm publish --access public --tag latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
