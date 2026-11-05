@@ -3074,8 +3074,21 @@ const commandView = async (args: Args) => {
   await openDashboardView(view, params);
 };
 
+// The agent skill this package ships, installed as <skills dir>/gtfs-tools. Before the move from gtfs-viz it
+// was named gtfs-viz; an old copy is never deleted (nothing records who installed it), only reported.
+const SKILL_NAME = "gtfs-tools";
+const OLD_SKILL_NAME = "gtfs-viz";
+
+const reportStaleSkill = async (skillsRoot: string) => {
+  const oldDir = path.join(skillsRoot, OLD_SKILL_NAME);
+  const skillMd = await readFile(path.join(oldDir, "SKILL.md"), "utf-8").catch(() => "");
+  if (/^name:\s*gtfs-viz\s*$/m.test(skillMd)) {
+    console.log(`Stale skill: ${oldDir} is the old gtfs-viz skill, left in place; remove it once you use ${SKILL_NAME}.`);
+  }
+};
+
 const commandSkillPath = () => {
-  console.log(path.join(packageRoot, "skills", "gtfs-viz", "SKILL.md"));
+  console.log(path.join(packageRoot, "skills", SKILL_NAME, "SKILL.md"));
 };
 
 const commandVersion = async () => {
@@ -3154,7 +3167,7 @@ const commandInstallSkill = async (args: Args) => {
       input: processStdin,
       output: processStdout,
     });
-    console.log("\nInstall GTFS Viz skill for:");
+    console.log(`\nInstall the ${SKILL_NAME} skill for:`);
     skillProviderChoices.forEach((choice, index) => {
       console.log(`  ${index + 1}. ${choice.label} (${defaultSkillRoot(choice.provider)})`);
     });
@@ -3168,8 +3181,8 @@ const commandInstallSkill = async (args: Args) => {
     getFlagString(args.flags, "target-dir") ||
     getFlagString(args.flags, "target") ||
     defaultSkillRoot(provider);
-  const sourceDir = path.join(packageRoot, "skills", "gtfs-viz");
-  const targetDir = path.join(targetRoot, "gtfs-viz");
+  const sourceDir = path.join(packageRoot, "skills", SKILL_NAME);
+  const targetDir = path.join(targetRoot, SKILL_NAME);
   const force = hasFlag(args.flags, "force");
 
   if (existsSync(targetDir) && !force)
@@ -3182,7 +3195,7 @@ const commandInstallSkill = async (args: Args) => {
   let skillMd = await readFile(skillMdPath, "utf-8");
 
   const allowedToolsByProvider: Record<SkillProvider, string | null> = {
-    anthropic: "Bash(gtfs-viz:*) Bash(duckdb:*) Read",
+    anthropic: "Bash(gtfs-tools:*) Bash(gtfs-viz:*) Bash(duckdb:*) Read",
     openai: null,
     google: null,
     generic: null,
@@ -3195,7 +3208,8 @@ const commandInstallSkill = async (args: Args) => {
   }
 
   await writeFile(skillMdPath, skillMd, "utf-8");
-  console.log(`Installed GTFS Viz skill for ${provider} to ${targetDir}`);
+  console.log(`Installed the ${SKILL_NAME} skill for ${provider} to ${targetDir}`);
+  await reportStaleSkill(targetRoot);
 };
 
 const commandUpdate = async (args: Args) => {

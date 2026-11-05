@@ -33,4 +33,4 @@ try {
   await rm(sessionRoot, { recursive: true, force: true });
 } catch {}
 
-console.log("gtfs-viz-cli: cleaned up local data and stopped daemon.");
+console.log("gtfs-tools: cleaned up local data and stopped daemon.");

@@ -1,4 +1,4 @@
-# GTFS Viz CLI — Editing & Applying Service Changes
+# GTFS Tools CLI — Editing & Applying Service Changes
 
 How to translate service changes (e.g. an MTA alerts page) into GTFS edits via the CLI, review
 them, and export. **The CLI does not fetch or parse alerts** — you (the agent) read the change
@@ -8,15 +8,15 @@ dashboard.
 ## Workflow
 
 1. **Import the working feed** (the data to check and edit):
-   `gtfs-viz import /abs/path/gtfs_supplemented.zip`
+   `gtfs-tools import /abs/path/gtfs_supplemented.zip`
 2. **Read the change source yourself** (the alerts page / notice). The CLI never touches it.
 3. **Check whether each change already exists** in the imported data (see *Checking existence*).
 4. **Confirm or implement**:
-   - Already present → open the dashboard to that trip to confirm: `gtfs-viz trip <trip_id>`.
+   - Already present → open the dashboard to that trip to confirm: `gtfs-tools trip <trip_id>`.
    - Missing/different → apply the edit (individual command or a batch `apply`), then open the
-     dashboard to show it: `gtfs-viz trip <trip_id>`.
-5. **Review** all pending edits: `gtfs-viz edits`. **Export** when done:
-   `gtfs-viz export --output ./out`.
+     dashboard to show it: `gtfs-tools trip <trip_id>`.
+5. **Review** all pending edits: `gtfs-tools edits`. **Export** when done:
+   `gtfs-tools export --output ./out`.
 
 Always query/read through the merged `*View` tables (`TripsView`, `StopTimesView`, `CalendarView`,
 `CalendarDatesView`) so pending edits are reflected. Base tables (`trips`, `stop_times`, …) show
@@ -39,44 +39,44 @@ the original feed only.
 ## Checking existence
 
 ```bash
-gtfs-viz routes --name "2" --data                        # find the route_id
-gtfs-viz route <route_id> --view service --data          # services on that route
-gtfs-viz route <route_id> --service <service_id> --data  # trips in a service
-gtfs-viz trip <trip_id> --data                           # a trip's stop_times (edit-aware)
-gtfs-viz calendar <service_id> --data                    # calendar + calendar_dates for a service
-gtfs-viz query --sql "SELECT trip_id, trip_headsign FROM TripsView WHERE route_id = 'R1'"
+gtfs-tools routes --name "2" --data                        # find the route_id
+gtfs-tools route <route_id> --view service --data          # services on that route
+gtfs-tools route <route_id> --service <service_id> --data  # trips in a service
+gtfs-tools trip <trip_id> --data                           # a trip's stop_times (edit-aware)
+gtfs-tools calendar <service_id> --data                    # calendar + calendar_dates for a service
+gtfs-tools query --sql "SELECT trip_id, trip_headsign FROM TripsView WHERE route_id = 'R1'"
 ```
 
 ## Individual edit commands
 
 ```bash
 # Trips
-gtfs-viz add_trip --trip-id T2 --route-id R1 --service-id WKD --headsign "Uptown Express" --direction-id 0
-gtfs-viz update_trip --trip-id T2 --headsign "Express"        # only given fields change
-gtfs-viz delete_trip --trip-id T2                             # also removes its stop_times
+gtfs-tools add_trip --trip-id T2 --route-id R1 --service-id WKD --headsign "Uptown Express" --direction-id 0
+gtfs-tools update_trip --trip-id T2 --headsign "Express"        # only given fields change
+gtfs-tools delete_trip --trip-id T2                             # also removes its stop_times
 
 # Stop times — replaces the trip's whole stop list (diffed for new/changed/removed status)
-gtfs-viz set_stop_times --trip-id T2 --stops-json '[
+gtfs-tools set_stop_times --trip-id T2 --stops-json '[
   {"stop_sequence":1,"stop_id":"S1","arrival_time":"09:00:00","departure_time":"09:00:00"},
   {"stop_sequence":2,"stop_id":"S3","arrival_time":"09:07:00","departure_time":"09:07:00"}
 ]'
-gtfs-viz set_stop_times --trip-id T2 --stops-file ./t2_stops.json
+gtfs-tools set_stop_times --trip-id T2 --stops-file ./t2_stops.json
 
 # Common stop-pattern edits (macro-backed; pick by alert type — see the table below)
-gtfs-viz remove_stops --trip T2 --stops "Spring St,Canal St"          # skip/express, station bypass
-gtfs-viz truncate_trip --trip T2 --to "14 St"                          # short-turn / ends early (also --from)
-gtfs-viz run_local --trip T2 --via LOCAL_TRIP --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"  # run local (add stops back)
-gtfs-viz split_trip --trip T2 --gap-from "Crescent St" --gap-to "Broadway Junction" --new-trip-id T2_SEC2  # two-section split
+gtfs-tools remove_stops --trip T2 --stops "Spring St,Canal St"          # skip/express, station bypass
+gtfs-tools truncate_trip --trip T2 --to "14 St"                          # short-turn / ends early (also --from)
+gtfs-tools run_local --trip T2 --via LOCAL_TRIP --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"  # run local (add stops back)
+gtfs-tools split_trip --trip T2 --gap-from "Crescent St" --gap-to "Broadway Junction" --new-trip-id T2_SEC2  # two-section split
 
 # Calendar (weekly pattern + service date range)
-gtfs-viz add_calendar --service-id WKND --days sat,sun --start-date 20260101 --end-date 20261231
-gtfs-viz update_calendar --service-id WKD --days mon,tue,wed,thu,fri,sat
-gtfs-viz delete_calendar --service-id WKND
+gtfs-tools add_calendar --service-id WKND --days sat,sun --start-date 20260101 --end-date 20261231
+gtfs-tools update_calendar --service-id WKD --days mon,tue,wed,thu,fri,sat
+gtfs-tools delete_calendar --service-id WKND
 
 # Calendar exceptions (calendar_dates) — per-date add/remove of service
-gtfs-viz add_calendar_date --service-id WKD --date 20260906 --exception-type 1   # 1 = add service that day
-gtfs-viz add_calendar_date --service-id WKD --date 20260704 --exception-type 2   # 2 = remove service that day
-gtfs-viz delete_calendar_date --service-id WKD --date 20260906
+gtfs-tools add_calendar_date --service-id WKD --date 20260906 --exception-type 1   # 1 = add service that day
+gtfs-tools add_calendar_date --service-id WKD --date 20260704 --exception-type 2   # 2 = remove service that day
+gtfs-tools delete_calendar_date --service-id WKD --date 20260906
 ```
 
 `--days` accepts full or 3-letter names: `mon,tue,wed,thu,fri,sat,sun`. Dates are `YYYYMMDD`.
@@ -87,9 +87,9 @@ Times are GTFS `HH:MM:SS` (hours may exceed 24 for trips past midnight).
 Feed many edits at once. This is the primary way an agent applies a set of service changes.
 
 ```bash
-gtfs-viz apply changeset.json          # from a file
-gtfs-viz apply --json '{"ops":[...]}'  # inline
-cat changeset.json | gtfs-viz apply --stdin
+gtfs-tools apply changeset.json          # from a file
+gtfs-tools apply --json '{"ops":[...]}'  # inline
+cat changeset.json | gtfs-tools apply --stdin
 ```
 
 The changeset is `{ "ops": [ ... ] }` (or a bare `[ ... ]`). Ops run in array order — put a
@@ -132,8 +132,8 @@ A **reroute** (e.g. "A/C run via the F line") carries the **donor** route's stop
 section — it is **not** a plain skip (which just leaves a gap). Use the built-in command:
 
 ```bash
-gtfs-viz reroute --trip <affected_trip>
-gtfs-viz reroute --trip <affected_trip> --via <donor_trip> --from "<boundary stop>" --to "<boundary stop>"
+gtfs-tools reroute --trip <affected_trip>
+gtfs-tools reroute --trip <affected_trip> --via <donor_trip> --from "<boundary stop>" --to "<boundary stop>"
 ```
 
 The trip-only command opens the selected trip directly in the dashboard reroute form. A complete
@@ -153,43 +153,43 @@ without opening the dashboard.
 
 Example — A/C run via the F on a weekend:
 ```bash
-gtfs-viz route F --data                              # find a donor F trip with the shared boundaries in travel order
-gtfs-viz reroute --trip <A_trip> --via <F_trip> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
-gtfs-viz reroute --trip <C_trip> --via <F_trip> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
+gtfs-tools route F --data                              # find a donor F trip with the shared boundaries in travel order
+gtfs-tools reroute --trip <A_trip> --via <F_trip> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
+gtfs-tools reroute --trip <C_trip> --via <F_trip> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
 ```
 
-The spliced-in stops become `new`, the removed originals `deleted` — `gtfs-viz edits --trip <id>` shows
+The spliced-in stops become `new`, the removed originals `deleted` — `gtfs-tools edits --trip <id>` shows
 the swap. Compare against the donor when you also need to inspect the physical alignment:
 ```bash
-gtfs-viz trip <affected_trip> --compare <donor_trip> --view map    # physical reroute on the map
-gtfs-viz trip <affected_trip> --compare <donor_trip>               # stop-by-stop timetable
+gtfs-tools trip <affected_trip> --compare <donor_trip> --view map    # physical reroute on the map
+gtfs-tools trip <affected_trip> --compare <donor_trip>               # stop-by-stop timetable
 ```
 
 > Skip vs. reroute: use a plain **skip** (`set_stop_times` without the stops) only when trains truly
-> bypass a segment with no substitute. Use **`gtfs-viz reroute`** whenever the alert says "run via the
+> bypass a segment with no substitute. Use **`gtfs-tools reroute`** whenever the alert says "run via the
 > \<other\> line" / "rerouted over the \<other\>" — the trip must pick up that line's stops. (For a
 > bespoke splice you can still build the list by hand and apply it with `set_stop_times`.)
 
 ## Reviewing edits
 
 ```bash
-gtfs-viz edits                       # categorized summary of all pending edits
-gtfs-viz edits --trip 2X_wknd        # original vs edited stop_times for one trip
-gtfs-viz edits --trip 2X_wknd --compare-view map --url-only
-gtfs-viz edits --view table --trips-page 3 --trips-page-size 20 --url-only
-gtfs-viz edit_table trips            # raw EditTripsTable rows
-gtfs-viz edit_table stop_times       # raw EditStopTimesTable rows
-gtfs-viz edit_table calendar         # raw EditCalendarTable rows
-gtfs-viz edit_table calendar_dates   # raw EditCalendarDatesTable rows
-gtfs-viz trip 2X_wknd                # open the dashboard on the (possibly new) trip
-gtfs-viz trip 2X_wknd --view timeline
+gtfs-tools edits                       # categorized summary of all pending edits
+gtfs-tools edits --trip 2X_wknd        # original vs edited stop_times for one trip
+gtfs-tools edits --trip 2X_wknd --compare-view map --url-only
+gtfs-tools edits --view table --trips-page 3 --trips-page-size 20 --url-only
+gtfs-tools edit_table trips            # raw EditTripsTable rows
+gtfs-tools edit_table stop_times       # raw EditStopTimesTable rows
+gtfs-tools edit_table calendar         # raw EditCalendarTable rows
+gtfs-tools edit_table calendar_dates   # raw EditCalendarDatesTable rows
+gtfs-tools trip 2X_wknd                # open the dashboard on the (possibly new) trip
+gtfs-tools trip 2X_wknd --view timeline
 ```
 
-`gtfs-viz trip <id>` opens `/trips/table?selectedTripId=<id>` and works for newly-added trips.
+`gtfs-tools trip <id>` opens `/trips/table?selectedTripId=<id>` and works for newly-added trips.
 Add `--view timeline` or `--view map`. When a dashboard session is already open, the command
 re-navigates it to the trip.
 
-`gtfs-viz edits --trip <id> --compare-view map --url-only` opens the Edits & Export category view,
+`gtfs-tools edits --trip <id> --compare-view map --url-only` opens the Edits & Export category view,
 expands that trip's comparison, and selects the reroute map tab. For non-reroute schedule changes,
 use `--compare-view table`.
 
@@ -230,13 +230,13 @@ clickable dashboard link generated by the CLI (never hand-write one).
 - **When:** <alert date range + time window> → trip runs <YYYYMMDD, an actual date in that range>
   (service <service_id> active that date); stops fall <HH:MM–HH:MM>, inside the window.
 - **Evidence:** <the CLI check that proves it — trip_id + the stop/calendar fact you saw>
-- **Validated link:** [open <line> trip](<url from `gtfs-viz trip <trip_id> --view timeline --url-only`>)
+- **Validated link:** [open <line> trip](<url from `gtfs-tools trip <trip_id> --view timeline --url-only`>)
 ```
 
 Rules:
 - **Confirm date, then time — and the date must be a real service date of the chosen trip.** Do not
   validate a weekend alert with a weekday trip, or an Aug 1–2 alert with a trip whose service never runs
-  Aug 1–2. Check the trip's `service_id` against the calendar (`gtfs-viz calendar <route> --data`):
+  Aug 1–2. Check the trip's `service_id` against the calendar (`gtfs-tools calendar <route> --data`):
   the weekday flags + `start_date`/`end_date` must cover a date in the alert's range, and any
   `calendar_dates` exception (added=1 / removed=2) for that date must not cancel it. Name the exact
   date you validated on (e.g. Sat **2026-08-01**), not just "the weekend."
@@ -245,16 +245,16 @@ Rules:
   window (e.g. Fri 23:30 – Mon 05:00). GTFS times past midnight use 24:00+ (e.g. `25:10:00` = 1:10am
   next day) — a diversion trip that only exists in the overnight window is itself evidence the alert's
   time band is modeled.
-- Generate the link with `gtfs-viz trip <trip_id> --view timeline --url-only` — this opens the trip on
+- Generate the link with `gtfs-tools trip <trip_id> --view timeline --url-only` — this opens the trip on
   a **time axis**, so the change is visible at its scheduled time (the skipped stop is gone, the reroute
   is shifted). Use `--view timetable` for the stop-times table, or `--compare <donor_trip> --view map`
   for a reroute. **Pick a trip that actually runs during the alert's time window** (the right day/time
   and direction), not just any trip on the route. Print the URL with `--url-only`; do **not** hand-write
-  it. If the daemon has idled out, reopen with `gtfs-viz trip <trip_id> --view timeline`.
-- Mark ✅ only after inspecting stops (`gtfs-viz trip <id> --data`), never from the alert text alone.
+  it. If the daemon has idled out, reopen with `gtfs-tools trip <trip_id> --view timeline`.
+- Mark ✅ only after inspecting stops (`gtfs-tools trip <id> --data`), never from the alert text alone.
   If the trip still runs its normal route, it is ❌/⚠️, not ✅ — say so.
 - If the change was missing and you applied it, mark ✏️ applied, note the ops used, and review with
-  `gtfs-viz edits --trip <id>`.
+  `gtfs-tools edits --trip <id>`.
 - `mta.info` blocks automated fetches — cite a web search or the GTFS-rt alerts feed as the source.
 
 Worked examples:
@@ -272,7 +272,7 @@ Worked examples:
 - **Alert:** "A trains rerouted via the F line; skip Spring, Canal, Chambers, Fulton, High St."
 - **Source:** web search (MTA weekend track-work press release)
 - **Evidence:** `stop_times.set` dropped those 5 stops from trips L0S3-A-… (58→53) and L0S3-C-… (40→35);
-  confirmed via `gtfs-viz edits --trip L0S3-A-…` (5 rows status=deleted).
+  confirmed via `gtfs-tools edits --trip L0S3-A-…` (5 rows status=deleted).
 - **Validated link:** [open A trip](http://127.0.0.1:PORT/trips/table?…&selectedTripId=L0S3-A-…)
 ```
 
@@ -317,7 +317,7 @@ feed has tens of thousands of stop_times ≥ 24:00, up to `28:02:00`). Handle it
 ## Exporting
 
 ```bash
-gtfs-viz export --output ./out
+gtfs-tools export --output ./out
 ```
 
 Merges edits with the originals and writes `stops.txt`, `pathways.txt`, `routes.txt`, `trips.txt`,
@@ -329,11 +329,11 @@ export with no pending edits.
 
 Alert: *"Aug 1–2, Manhattan-bound 2 trains skip 23 St, 18 St, Christopher St."*
 
-1. `gtfs-viz routes --name "2" --data` → route_id.
-2. `gtfs-viz route <route_id> --view service --data` → weekend `service_id`(s).
-3. `gtfs-viz route <route_id> --service <service_id> --data` → affected trip_ids; for each,
-   `gtfs-viz trip <trip_id> --data` to read its stops.
+1. `gtfs-tools routes --name "2" --data` → route_id.
+2. `gtfs-tools route <route_id> --view service --data` → weekend `service_id`(s).
+3. `gtfs-tools route <route_id> --service <service_id> --data` → affected trip_ids; for each,
+   `gtfs-tools trip <trip_id> --data` to read its stops.
 4. For each affected trip, build a `stop_times.set` op **without** the skipped stops (or add a new
    express trip on a diversion `service_id` plus `calendar_date.add` rows for Aug 1 and Aug 2).
-5. `gtfs-viz apply changeset.json`, then `gtfs-viz trip <trip_id>` to confirm the change on the map/timeline.
-6. `gtfs-viz edits` to review, `gtfs-viz export --output ./out` to emit the updated feed.
+5. `gtfs-tools apply changeset.json`, then `gtfs-tools trip <trip_id>` to confirm the change on the map/timeline.
+6. `gtfs-tools edits` to review, `gtfs-tools export --output ./out` to emit the updated feed.

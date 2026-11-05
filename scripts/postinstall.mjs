@@ -9,7 +9,11 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   ".."
 );
-const sourceDir = path.join(packageRoot, "skills", "gtfs-viz");
+// The skill is gtfs-tools; before the move from gtfs-viz it was gtfs-viz. An old gtfs-viz skill directory is
+// never removed here (nothing records whether this CLI installed it); it is reported as stale instead.
+const SKILL_NAME = "gtfs-tools";
+const OLD_SKILL_NAME = "gtfs-viz";
+const sourceDir = path.join(packageRoot, "skills", SKILL_NAME);
 
 if (process.env.GTFS_VIZ_RESET_DATA === "1") {
   const dataRoot = path.join(os.homedir(), ".gtfs-viz-cli");
@@ -41,7 +45,7 @@ const targets = {
       process.env.CLAUDE_HOME || path.join(os.homedir(), ".claude"),
       "skills"
     ),
-    allowedTools: "Bash(gtfs-viz:*) Bash(duckdb:*) Read",
+    allowedTools: "Bash(gtfs-tools:*) Bash(gtfs-viz:*) Bash(duckdb:*) Read",
   },
   2: {
     provider: "openai",
@@ -66,8 +70,18 @@ const targets = {
   },
 };
 
+async function reportStaleSkills() {
+  for (const target of Object.values(targets)) {
+    const oldDir = path.join(target.dir, OLD_SKILL_NAME);
+    const skillMd = await readFile(path.join(oldDir, "SKILL.md"), "utf8").catch(() => "");
+    if (/^name:\s*gtfs-viz\s*$/m.test(skillMd)) {
+      console.log(`Stale skill: ${oldDir} is the old gtfs-viz skill, left in place; remove it once you use ${SKILL_NAME}.`);
+    }
+  }
+}
+
 async function installTo(target) {
-  const targetDir = path.join(target.dir, "gtfs-viz");
+  const targetDir = path.join(target.dir, SKILL_NAME);
   await rm(targetDir, { recursive: true, force: true }).catch(() => {});
   await mkdir(target.dir, { recursive: true });
   await cp(sourceDir, targetDir, { recursive: true });
@@ -78,13 +92,15 @@ async function installTo(target) {
     skillMd = skillMd.replace(/^(metadata:)/m, `allowed-tools: ${target.allowedTools}\n$1`);
   }
   await writeFile(skillMdPath, skillMd, "utf8");
-  console.log(`Installed GTFS Viz skill for ${target.provider} to ${targetDir}`);
+  console.log(`Installed the ${SKILL_NAME} skill for ${target.provider} to ${targetDir}`);
 }
 
+const installHint =
+  "Run `gtfs-tools install-skill <provider>` (or `gtfs-viz install-skill <provider>` with @gabrielahn/gtfs-viz-cli)";
+
 if (!process.stdin.isTTY) {
-  console.log(
-    "Run `gtfs-viz install-skill <provider>` to install the agent skill."
-  );
+  console.log(`${installHint} to install the agent skill.`);
+  await reportStaleSkills();
   process.exit(0);
 }
 
@@ -93,7 +109,7 @@ const rl = readline.createInterface({
   output: process.stdout,
 });
 
-console.log("\nInstall GTFS Viz skills:");
+console.log(`\nInstall the ${SKILL_NAME} agent skill:`);
 Object.entries(targets).forEach(([number, target]) => {
   console.log(`  ${number}. ${target.label}`);
 });
@@ -110,8 +126,9 @@ if (targets[choice]) {
     await installTo(targets[choice]);
   } catch (error) {
     console.error("Skill installation failed:", error.message);
-    console.log("Run `gtfs-viz install-skill` to retry.");
+    console.log(`${installHint} to retry.`);
   }
 } else {
-  console.log("Skipped. Run `gtfs-viz install-skill` anytime to install.");
+  console.log(`Skipped. ${installHint} anytime to install.`);
 }
+await reportStaleSkills();

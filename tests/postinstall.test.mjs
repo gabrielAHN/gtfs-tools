@@ -13,7 +13,7 @@ const postinstallScript = fileURLToPath(
 );
 
 async function createIsolatedData(t) {
-  const sandbox = await mkdtemp(path.join(os.tmpdir(), "gtfs-viz-postinstall-"));
+  const sandbox = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-postinstall-"));
   const home = path.join(sandbox, "home");
   const temp = path.join(sandbox, "tmp");
   const dataRoot = path.join(home, ".gtfs-viz-cli");
@@ -86,4 +86,23 @@ test("postinstall preserves user data for unrelated environment values", async (
   for (const [sentinel, expected] of fixture.sentinels) {
     assert.equal(await readFile(sentinel, "utf8"), expected);
   }
+});
+
+test("postinstall leaves an old gtfs-viz skill in place and reports it as stale in one line", async (t) => {
+  const fixture = await createIsolatedData(t);
+  const claudeHome = path.join(fixture.home, ".claude");
+  const oldSkill = path.join(claudeHome, "skills", "gtfs-viz");
+  await mkdir(oldSkill, { recursive: true });
+  await writeFile(path.join(oldSkill, "SKILL.md"), "---\nname: gtfs-viz\n---\n# old skill\n");
+  const unrelated = path.join(fixture.home, ".agents", "skills", "gtfs-viz");
+  await mkdir(unrelated, { recursive: true });
+  await writeFile(path.join(unrelated, "SKILL.md"), "---\nname: someone-else\n---\n");
+
+  const { stdout } = await runPostinstall(fixture, { CLAUDE_HOME: claudeHome, CODEX_HOME: path.join(fixture.home, ".codex"), GEMINI_HOME: path.join(fixture.home, ".gemini") });
+
+  assert.match(stdout, /gtfs-tools install-skill <provider>/);
+  const stale = stdout.split("\n").filter((line) => /stale/i.test(line));
+  assert.deepEqual(stale, [`Stale skill: ${oldSkill} is the old gtfs-viz skill, left in place; remove it once you use gtfs-tools.`]);
+  assert.equal(await readFile(path.join(oldSkill, "SKILL.md"), "utf8"), "---\nname: gtfs-viz\n---\n# old skill\n");
+  assert.equal(await readFile(path.join(unrelated, "SKILL.md"), "utf8"), "---\nname: someone-else\n---\n");
 });

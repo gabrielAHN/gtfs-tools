@@ -4,7 +4,7 @@ import assert from "node:assert/strict"
 import { readFile } from "node:fs/promises"
 import test from "node:test"
 
-const DOCS = ["../README.md", "../skills/gtfs-viz/SKILL.md", "../skills/gtfs-viz/references/commands.md"]
+const DOCS = ["../README.md", "../skills/gtfs-tools/SKILL.md", "../skills/gtfs-tools/references/commands.md"]
 
 test("import docs say download and validation failures keep the dataset and DuckDB import failures clear it", async () => {
   for (const doc of DOCS) {

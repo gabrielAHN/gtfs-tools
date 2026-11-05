@@ -201,7 +201,7 @@ Standalone stops only (non-Station, no parent_station).
 
 ## Route Line Tables
 
-Populated on demand by `gtfs-viz route-bands` (or the route line macros in a
+Populated on demand by `gtfs-tools route-bands` (or the route line macros in a
 writable spatial session), not by import. Empty until the bands are built.
 
 ### RouteShapeLanesTable

@@ -2,7 +2,7 @@
 
 Official source: https://gtfs.org/documentation/schedule/reference/#field-definitions
 
-Use the official reference for exact field requirements. For GTFS Viz, focus on `stops.txt`, `pathways.txt`, and `levels.txt` when analyzing stations, station parts, entrances, platforms, boarding areas, and internal station connectivity.
+Use the official reference for exact field requirements. For GTFS Tools and the GTFS Viz dashboard, focus on `stops.txt`, `pathways.txt`, and `levels.txt` when analyzing stations, station parts, entrances, platforms, boarding areas, and internal station connectivity.
 
 ## Station Part Fields
 
@@ -10,7 +10,7 @@ GTFS station parts are represented in `stops.txt`.
 
 Relevant `location_type` values:
 
-| Value | GTFS meaning | GTFS Viz label |
+| Value | GTFS meaning | GTFS Tools / GTFS Viz label |
 | ----- | ------------ | -------------- |
 | `0` or empty | Stop or platform | `Stop` or `Platform` |
 | `1` | Station | `Station` |
@@ -30,7 +30,7 @@ Use `parent_station` to determine station hierarchy:
 
 Important fields for station-part review:
 
-| Field | Use in GTFS Viz |
+| Field | Use in GTFS Tools |
 | ----- | --------------- |
 | `stop_id` | Stable node ID for station parts and pathway endpoints |
 | `stop_name` | Rider-facing station-part label when present |
@@ -43,11 +43,11 @@ Important fields for station-part review:
 
 ## Pathway Fields
 
-GTFS internal station networks are represented in `pathways.txt`. GTFS Viz treats pathway records as graph edges between station-part nodes from `stops.txt`.
+GTFS internal station networks are represented in `pathways.txt`. GTFS Tools treats pathway records as graph edges between station-part nodes from `stops.txt`.
 
 Relevant pathway fields:
 
-| Field | Use in GTFS Viz |
+| Field | Use in GTFS Tools |
 | ----- | --------------- |
 | `pathway_id` | Stable edge ID |
 | `from_stop_id` | Source station-part node |
@@ -72,25 +72,25 @@ Use this workflow:
 1. Pick one station.
 
 ```bash
-gtfs-viz station "Station Name" --data
+gtfs-tools station "Station Name" --data
 ```
 
 2. List station parts.
 
 ```bash
-gtfs-viz query --name station-stops --args-json '{"stationId":"STATION_ID"}' --data
+gtfs-tools query --name station-stops --args-json '{"stationId":"STATION_ID"}' --data
 ```
 
 3. List pathway edges for those station parts.
 
 ```bash
-gtfs-viz query --name station-pathways --args-json '{"stationId":"STATION_ID"}' --data
+gtfs-tools query --name station-pathways --args-json '{"stationId":"STATION_ID"}' --data
 ```
 
 4. Check network routes between station parts.
 
 ```bash
-gtfs-viz station_routes STATION_ID --data
+gtfs-tools station_routes STATION_ID --data
 ```
 
 5. Use network functions to find disconnected or unreachable station parts.
@@ -147,7 +147,7 @@ ORDER BY t.location_type_name, t.stop_name, t.stop_id;
 7. Inspect direct connections for a suspicious node.
 
 ```bash
-gtfs-viz station_pathways STATION_ID --node-id NODE_ID --data
+gtfs-tools station_pathways STATION_ID --node-id NODE_ID --data
 ```
 
 If a missing connection is confirmed, add or update a pathway edge with `add_connection` or `update_connection`. Use `pathway_mode`, `is_bidirectional`, and `traversal_time` consistently with the physical station layout.

@@ -1,9 +1,9 @@
 -- ============================================================================
--- GTFS Viz SQL Examples
+-- GTFS Tools SQL Examples
 -- ============================================================================
 -- Run these after importing a GTFS feed:
---   gtfs-viz import feed.zip
---   gtfs-viz query --sql "<sql>"
+--   gtfs-tools import feed.zip
+--   gtfs-tools query --sql "<sql>"
 -- ============================================================================
 
 -- List all stations
