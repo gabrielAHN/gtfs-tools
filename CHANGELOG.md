@@ -71,8 +71,8 @@ see its CHANGELOG for earlier versions.
 ### Build notes
 - npm with a committed `package-lock.json`: `npm ci`, `npm run check`, `npm run build`
   (`build:cli` + `dashboard`), `npm test`.
-- CI runs the DuckDB integration tests on the DuckDB v2.0.0 CLI with the latest gtfs-duckdb build and
-  fails on any skipped test. A version bump merged to `main` first checks, builds and packs both
+- CI runs the DuckDB integration tests on the DuckDB v2.0.0 CLI with the signed `gtfs` extension from the
+  DuckDB community repository, and fails on any skipped test. A version bump merged to `main` first checks, builds and packs both
   packages in a job with read-only contents and no npm token. Only then does a second job tag
   `v<version>`, create the GitHub release and publish the packed `@gabrielahn/gtfs-tools`, then
   `@gabrielahn/gtfs-viz-cli` tarball, with `--tag latest` and without installing anything. The npm token

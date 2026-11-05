@@ -57,13 +57,10 @@ jobs:
           '
 
   extension-integration:
-    name: GTFS DuckDB integration
+    name: DuckDB integration (community gtfs)
     needs: build
     runs-on: ubuntu-24.04
     env:
-      EXTENSION_REPOSITORY: gabrielAHN/gtfs-duckdb
-      EXTENSION_BRANCH: ${{ vars.GTFS_EXTENSION_BRANCH || 'main' }}
-      GTFS_STAGED_REPOSITORY: ${{ github.workspace }}/build/staged-repository
       DUCKDB_BIN: ${{ github.workspace }}/build/duckdb-cli/duckdb
       AWS_EC2_METADATA_DISABLED: 'true'
     steps:
@@ -77,35 +74,26 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - name: Download staged extension repository
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          run_id=$(gh run list --repo "$EXTENSION_REPOSITORY" --workflow MainDistributionPipeline.yml --branch "$EXTENSION_BRANCH" --status success --limit 1 --json databaseId --jq '.[0].databaseId')
-          if [ -z "$run_id" ]; then
-            echo "::error::No successful $EXTENSION_REPOSITORY build on $EXTENSION_BRANCH"
-            exit 1
-          fi
-          echo "Using $EXTENSION_REPOSITORY run $run_id ($EXTENSION_BRANCH)"
-          gh run download "$run_id" --repo "$EXTENSION_REPOSITORY" --name gtfs-unsigned-development-repository --dir "$GTFS_STAGED_REPOSITORY"
-          cat "$GTFS_STAGED_REPOSITORY/manifest.json"
-
-      - name: Install DuckDB CLI v2.0.0, spatial, httpfs and aws
+      # The gtfs extension comes from the DuckDB community repository (signed), the same source the CLI
+      # installs from by default. It goes in its own directory so the dependency cache holds only
+      # spatial, httpfs and aws.
+      - name: Install DuckDB CLI v2.0.0, spatial, httpfs, aws and the community gtfs extension
         run: |
           mkdir -p build/duckdb-cli
           curl -fsSL -o build/duckdb-cli/cli.tar.gz https://github.com/duckdb/duckdb/releases/download/v2.0.0/duckdb-cli-linux-amd64.tar.gz
           tar -xzf build/duckdb-cli/cli.tar.gz -C build/duckdb-cli
           echo "$GITHUB_WORKSPACE/build/duckdb-cli" >> "$GITHUB_PATH"
-          echo "GTFS_DEPENDENCY_CACHE=$HOME/.duckdb/extensions" >> "$GITHUB_ENV"
-          "$DUCKDB_BIN" :memory: -c "INSTALL spatial; INSTALL httpfs; INSTALL aws; SELECT version(); PRAGMA platform;"
-          gunzip -c "$GTFS_STAGED_REPOSITORY/v2.0.0/linux_amd64/gtfs.duckdb_extension.gz" > build/gtfs.duckdb_extension
-          echo "GTFS_EXTENSION=$GITHUB_WORKSPACE/build/gtfs.duckdb_extension" >> "$GITHUB_ENV"
+          "$DUCKDB_BIN" :memory: -c "SET extension_directories=['$GITHUB_WORKSPACE/build/deps']; INSTALL spatial; INSTALL httpfs; INSTALL aws; SELECT version(); PRAGMA platform;"
+          "$DUCKDB_BIN" :memory: -c "SET extension_directories=['$GITHUB_WORKSPACE/build/gtfs']; INSTALL gtfs FROM community; SELECT extension_name, extension_version, installed_from FROM duckdb_extensions() WHERE extension_name = 'gtfs';"
+          echo "GTFS_DEPENDENCY_CACHE=$GITHUB_WORKSPACE/build/deps" >> "$GITHUB_ENV"
+          echo "GTFS_EXTENSION=$GITHUB_WORKSPACE/build/gtfs/v2.0.0/linux_amd64/gtfs.duckdb_extension" >> "$GITHUB_ENV"
+          test -f "$GITHUB_WORKSPACE/build/gtfs/v2.0.0/linux_amd64/gtfs.duckdb_extension"
 
       - run: npm ci
       # The tests need the CLI bundle (dist/index.js), not the dashboard.
       - run: npm run build:cli
 
-      - name: Tests with the downloaded extension (0 skipped)
+      - name: Tests with the community gtfs extension (0 skipped)
         run: |
           node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination="$RUNNER_TEMP/tests.tap" tests/*.test.mjs
           grep -E '^# (tests|pass|fail|skipped|skip) ' "$RUNNER_TEMP/tests.tap"

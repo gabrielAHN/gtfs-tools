@@ -21,7 +21,7 @@ Read these when you need exact column names, SQL syntax, or flag details:
 - [references/commands.md](references/commands.md) — All CLI commands with flags and examples
 - [references/edits.md](references/edits.md) — Apply trip / schedule / service edits and the changeset format for feeding service changes to the CLI
 - [references/tables.md](references/tables.md) — Table and view schemas with column types
-- [GTFS DuckDB function reference](https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-duckdb/functions.md) — every SQL function with a runnable example (markdown)
+- [`gtfs` extension function reference](https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-duckdb/functions.md) — every SQL function with a runnable example (markdown)
 - [GTFS Tools CLI docs](https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-tools/cli/) and the [docs index](https://gtfs-viz-production-f1a4.up.railway.app/docs/llms.txt) — every docs page as markdown
 - [references/gtfs-schedule-reference.md](references/gtfs-schedule-reference.md) — GTFS Schedule field reference focused on station parts, pathways, and missing-connection audits
 - [references/examples.sql](references/examples.sql) — Practical SQL query examples
@@ -362,7 +362,7 @@ See the [function reference](https://gtfs-viz-production-f1a4.up.railway.app/doc
 
 ## DuckDB Extension
 
-The CLI loads the separate [GTFS DuckDB](https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-duckdb/usage/) for station analysis, pathway queries, and pathfinding.
+The CLI loads the `gtfs` [DuckDB community extension](https://duckdb.org/community_extensions/extensions/gtfs) for station analysis, pathway queries, and pathfinding.
 
 Every CLI DuckDB session reduces its worker count, uses a host-aware memory limit capped at 4 GB,
 disables insertion-order preservation, and can spill beside the persistent database. Override these
