@@ -1,6 +1,6 @@
 {
   "name": "@gabrielahn/gtfs-viz-cli",
-  "version": "1.6.0",
+  "version": "1.5.4",
   "description": "Compatibility package: the gtfs-tools CLI (@gabrielahn/gtfs-tools) under its former command name, gtfs-viz",
   "license": "MIT",
   "author": "Gabriel AHN",
@@ -37,6 +37,6 @@
     "prepack": "node scripts/generate-skill.mjs"
   },
   "dependencies": {
-    "@gabrielahn/gtfs-tools": "1.6.0"
+    "@gabrielahn/gtfs-tools": "1.5.4"
   }
 }

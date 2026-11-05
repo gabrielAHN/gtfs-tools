@@ -1,10 +1,10 @@
 # Changelog
 
 All notable changes to GTFS Tools (`@gabrielahn/gtfs-tools`, formerly `@gabrielahn/gtfs-viz-cli`) are
-documented in this file. Releases up to 1.6.0 shipped from [gabrielAHN/gtfs-viz](https://github.com/gabrielAHN/gtfs-viz);
+documented in this file. Releases up to 1.5.3 were published to npm from [gabrielAHN/gtfs-viz](https://github.com/gabrielAHN/gtfs-viz);
 see its CHANGELOG for earlier versions.
 
-## [1.6.0] - 2026-11-04
+## [1.5.4] - 2026-11-04
 
 ### Changed
 - The CLI moved from gabrielAHN/gtfs-viz (`packages/cli`) to its own repository, gabrielAHN/gtfs-tools,
@@ -29,13 +29,13 @@ see its CHANGELOG for earlier versions.
 - DuckDB runs without `AI_AGENT`, so DuckDB 2.0's agent mode never changes its output.
 
 ### Upgrading from 1.5.x
-- `gtfs-viz update --provider <p>` from 1.5.x works: it installs 1.6.0, then (still running the 1.5.x
+- `gtfs-viz update --provider <p>` from 1.5.x works: it installs 1.5.4, then (still running the 1.5.x
   code) replaces your `gtfs-viz` skill with the copy that `@gabrielahn/gtfs-viz-cli` now ships in
   `skills/gtfs-viz`. That copy is the `gtfs-tools` skill under its old name, with a note that it is now
   called `gtfs-tools`. Run `gtfs-viz install-skill <p>` afterwards to install `gtfs-tools`, then delete
   the old `gtfs-viz` skill directory.
 - A plain `npm install -g @gabrielahn/gtfs-viz-cli` also works; the imported dataset is kept.
-- A dashboard daemon that 1.5.x left running is replaced the first time 1.6.0 opens the dashboard.
+- A dashboard daemon that 1.5.x left running is replaced the first time 1.5.4 opens the dashboard.
   `daemon.json` now records the daemon's `cliVersion` and `packageRoot`. A daemon is reused when it runs
   the same version from an install that still holds that version and its dashboard (so `gtfs-tools` and
   `gtfs-viz` installed separately share one daemon). Otherwise it is stopped (SIGTERM, then SIGKILL, only

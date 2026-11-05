@@ -1,6 +1,6 @@
 {
   "name": "@gabrielahn/gtfs-tools",
-  "version": "1.6.0",
+  "version": "1.5.4",
   "description": "GTFS command-line tools: import feeds (local, http(s), s3, r2), browse stations/stops/routes/pathways, edit connections, trips and schedules, compare service and export from the terminal with DuckDB and the gtfs extension, plus a local browser dashboard",
   "license": "MIT",
   "author": "Gabriel AHN",
