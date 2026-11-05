@@ -17,10 +17,10 @@ see its CHANGELOG for earlier versions.
   the dashboard daemon and the `DUCKDB_BIN`, `GTFS_EXTENSION_REPOSITORY` and `GTFS_VIZ_*` variables.
 - The CLI talks to the `gtfs` DuckDB extension directly and no longer depends on any `@gtfs-viz`
   package: it carries its own copy of the extension client, the import SQL and the named queries.
-- The dashboard comes from a gtfs-viz release: the package bundles the `gtfs-viz-dashboard.tar.gz`
-  asset of gtfs-viz v1.6.0, pinned by sha256 in `dashboard.lock.json` and extracted at build time by
-  `scripts/fetch-dashboard.mjs`. The CLI refuses a dashboard whose manifest does not declare `cliApi: 1`.
-  `GTFS_VIZ_DASHBOARD_DIST` still serves another build.
+- The package bundles the GTFS Viz dashboard, built from the gtfs-viz submodule: gabrielAHN/gtfs-viz
+  is a git submodule at `gtfs-viz/`, and `scripts/build-dashboard.mjs` (`npm run dashboard`) runs its
+  `yarn build:dashboard` and installs the result into `dashboard/`. The CLI refuses a dashboard whose
+  manifest does not declare `cliApi: 1`. `GTFS_VIZ_DASHBOARD_DIST` still serves another build.
 - The agent skill is now `gtfs-tools` (`npx skills add gabrielAHN/gtfs-tools`). It names both commands.
   An old `gtfs-viz` skill directory is left in place and reported as stale.
 - `update` reinstalls the package that provides the running command.
@@ -59,18 +59,21 @@ see its CHANGELOG for earlier versions.
   credentials. A refused source is shown as `<scheme>://…`.
 - `import` and `status` print text from outside the CLI, such as a server's reason phrase or a stored
   source, without escape sequences, control or bidi characters.
-- `scripts/fetch-dashboard.mjs` fails closed: a checksum mismatch, a non-ustar archive, absolute paths,
-  `..`, links, devices or entries outside `dashboard/` leave the existing dashboard untouched.
-- `scripts/fetch-dashboard.mjs --out` only ever replaces a dashboard: a missing or empty directory, or one
+- `scripts/build-dashboard.mjs` fails closed: a build with links, hard links or devices, without
+  `index.html`, or whose manifest is not a `cliApi: 1` `gtfs-viz-dashboard` one leaves the existing
+  dashboard untouched.
+- `scripts/build-dashboard.mjs --out` only ever replaces a dashboard: a missing or empty directory, or one
   holding a `gtfs-viz-dashboard` manifest. Any other directory, a symbolic link, and the current
   directory, the package root, `$HOME`, `/` or a parent of them are refused untouched.
-- Archive names that the file system would store as one file (case or Unicode NFC/NFD variants) are
-  refused with a clear error, and a dashboard left in `.dashboard.old-*` by an interrupted update is
-  restored on the next run.
+- Names that the file system would store as one file (case or Unicode NFC/NFD variants) are refused with
+  a clear error, and a dashboard left in `.dashboard.old-*` by an interrupted update is restored on the
+  next run.
 
 ### Build notes
-- npm with a committed `package-lock.json`: `npm ci`, `npm run check`, `npm run build`
-  (`build:cli` + `dashboard`), `npm test`.
+- Clone with `git clone --recurse-submodules` (or run `git submodule update --init`). npm with a
+  committed `package-lock.json`: `npm ci`, `npm run check`, `npm run build` (`build:cli` + `dashboard`,
+  which needs yarn 1.x for the gtfs-viz submodule), `npm test`. The npm package never contains
+  `gtfs-viz/`.
 - CI runs the DuckDB integration tests on the DuckDB v2.0.0 CLI with the signed `gtfs` extension from the
   DuckDB community repository, and fails on any skipped test. A version bump merged to `main` first checks, builds and packs both
   packages in a job with read-only contents and no npm token. Only then does a second job tag

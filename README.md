@@ -75,8 +75,8 @@ Never put credentials in a URL. URLs with a user name or password are refused, a
 ## Dashboard
 
 The dashboard is the CLI mode of the [GTFS Viz](https://github.com/gabrielAHN/gtfs-viz) web app, served
-locally on `127.0.0.1`. Each package bundles the copy pinned in `dashboard.lock.json`: a gtfs-viz
-release asset, checked by sha256. It works offline.
+locally on `127.0.0.1`. It is built from gtfs-viz, included here as a git submodule (`gtfs-viz/`), and
+bundled in the package, so it works offline.
 
 ## Agent skill
 
@@ -94,11 +94,14 @@ gtfs-tools update            # updates the package that provides the command; ke
 ## Development
 
 ```bash
+git clone --recurse-submodules https://github.com/gabrielAHN/gtfs-tools.git
+cd gtfs-tools
 npm ci && npm run check && npm run build && npm test
 ```
 
+`npm run build` also builds the dashboard from the gtfs-viz submodule, which needs yarn 1.x.
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the full test setup with a real DuckDB, how to move the
-dashboard pin, and how releases work.
+gtfs-viz pin, and how releases work.
 
 ## License
 
