@@ -20,5 +20,8 @@ gtfs-viz --version
   globally together.
 - New installs should use `npm install -g @gabrielahn/gtfs-tools`. The agent skill is now `gtfs-tools`
   (`gtfs-viz install-skill <provider>` installs it).
+- Upgrading from 1.5.x with its own `gtfs-viz update --provider <provider>` works: this package ships a
+  `skills/gtfs-viz` copy of the `gtfs-tools` skill (same content, old name, a note that it was renamed)
+  for the 1.5.x code to install. Run `gtfs-viz install-skill <provider>` afterwards to get `gtfs-tools`.
 
 Docs: <https://gtfs-viz-production-f1a4.up.railway.app/docs/gtfs-tools/cli/>

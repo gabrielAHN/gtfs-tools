@@ -304,7 +304,10 @@ node scripts/fetch-dashboard.mjs --allow-unpinned \
 To move the pin, set `tag`, `url` and `sha256` in `dashboard.lock.json` from the gtfs-viz release
 (`gtfs-viz-dashboard.tar.gz.sha256` holds the hash). Publishing and CI never use `--allow-unpinned`.
 
-`compat/gtfs-viz-cli` is the `@gabrielahn/gtfs-viz-cli` compatibility package. Releases bump the
+`compat/gtfs-viz-cli` is the `@gabrielahn/gtfs-viz-cli` compatibility package. Its `prepack`
+(`compat/gtfs-viz-cli/scripts/generate-skill.mjs`) generates `skills/gtfs-viz/` from `skills/gtfs-tools/`:
+the same skill under its old name, with a note that it is now `gtfs-tools`. The copy is not committed;
+gtfs-viz-cli 1.5.x's own `update --provider` installs it when upgrading. Releases bump the
 version in `package.json`, in `compat/gtfs-viz-cli/package.json` (its `version` and its
 `@gabrielahn/gtfs-tools` dependency) and in `skills/gtfs-tools/SKILL.md`, and add a `CHANGELOG.md`
 entry. Merging such a PR tags the release and publishes both packages (`.github/workflows/release.yml`).

@@ -3,6 +3,8 @@ dist/
 .tsc-out/
 # Fetched at build time from the pinned gtfs-viz release asset (dashboard.lock.json).
 dashboard/
+# Generated from skills/gtfs-tools by the compatibility package's prepack (compat/gtfs-viz-cli/scripts/generate-skill.mjs).
+compat/gtfs-viz-cli/skills/
 *.tgz
 *.log
 .DS_Store

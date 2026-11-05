@@ -26,11 +26,15 @@
   },
   "files": [
     "bin",
+    "skills",
     "README.md"
   ],
   "type": "module",
   "engines": {
     "node": ">=18"
+  },
+  "scripts": {
+    "prepack": "node scripts/generate-skill.mjs"
   },
   "dependencies": {
     "@gabrielahn/gtfs-tools": "1.6.0"

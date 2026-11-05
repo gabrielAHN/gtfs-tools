@@ -28,6 +28,14 @@ see its CHANGELOG for earlier versions.
   `GTFS_EXTENSION_REPOSITORY` names another repository. Community builds need a DuckDB v2.0.0 CLI.
 - DuckDB runs without `AI_AGENT`, so DuckDB 2.0's agent mode never changes its output.
 
+### Upgrading from 1.5.x
+- `gtfs-viz update --provider <p>` from 1.5.x works: it installs 1.6.0, then (still running the 1.5.x
+  code) replaces your `gtfs-viz` skill with the copy that `@gabrielahn/gtfs-viz-cli` now ships in
+  `skills/gtfs-viz`. That copy is the `gtfs-tools` skill under its old name, with a note that it is now
+  called `gtfs-tools`. Run `gtfs-viz install-skill <p>` afterwards to install `gtfs-tools`, then delete
+  the old `gtfs-viz` skill directory.
+- A plain `npm install -g @gabrielahn/gtfs-viz-cli` also works; the imported dataset is kept.
+
 ### Added
 - `gtfs-tools import` also takes an `http(s)://` URL or an `s3://`, `s3a://`, `s3n://` or `r2://` object.
   The feed is downloaded and checked before the current dataset changes, and the download is deleted
