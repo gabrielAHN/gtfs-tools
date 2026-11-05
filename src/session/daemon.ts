@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, readlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import {
@@ -90,13 +90,24 @@ export async function stopDaemon(): Promise<boolean> {
 
 // --- Replacing a daemon left running by another CLI version or package --------------------------------------
 
-const run = (file: string, args: string[]) =>
+const runOnce = (file: string, args: string[]) =>
   new Promise<{ code: number | string | null; stdout: string }>((resolve) => {
     execFile(file, args, { timeout: 5000, encoding: "utf8" }, (error, stdout) => {
       const code = error ? ((error as NodeJS.ErrnoException).code ?? 1) : 0;
       resolve({ code: code as number | string | null, stdout: stdout ?? "" });
     });
   });
+
+// Runs a system tool from PATH, or from its usual locations when PATH lacks them (macOS keeps lsof in
+// /usr/sbin).
+const run = async (tool: "ps" | "lsof", args: string[]) => {
+  let result = await runOnce(tool, args);
+  for (const dir of ["/usr/sbin", "/usr/bin", "/bin", "/sbin"]) {
+    if (result.code !== "ENOENT") break;
+    result = await runOnce(path.join(dir, tool), args);
+  }
+  return result;
+};
 
 // The command line of a process, or null when it can't be read (no /proc and no ps).
 export async function processCommandLine(pid: number): Promise<string | null> {
@@ -106,21 +117,38 @@ export async function processCommandLine(pid: number): Promise<string | null> {
   return ps.code === 0 && ps.stdout.trim() ? ps.stdout.trim() : null;
 }
 
-// Whether `pid` listens on 127.0.0.1:`port`: lsof when installed, otherwise whether the port answers the
-// dashboard API as a gtfs-tools/gtfs-viz daemon does.
+// The inodes of TCP sockets listening on `port`, from /proc/net/tcp{,6} (Linux), or null without /proc.
+async function procListeningInodes(port: number): Promise<Set<string> | null> {
+  let found: Set<string> | null = null;
+  for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+    const text = await readFile(table, "utf8").catch(() => null);
+    if (text === null) continue;
+    found ??= new Set();
+    for (const line of text.split("\n").slice(1)) {
+      // sl local_address rem_address st tx_queue:rx_queue tr:tm->when retrnsmt uid timeout inode
+      const fields = line.trim().split(/\s+/);
+      if (fields.length < 10 || fields[3] !== "0A") continue; // 0A = LISTEN
+      if (Number.parseInt(fields[1].split(":").at(-1) ?? "", 16) === port) found.add(fields[9]);
+    }
+  }
+  return found;
+}
+
+// Whether `pid` itself listens on `port`: through /proc on Linux (its open socket inodes), else lsof (macOS,
+// BSD). When neither can tell, the answer is no, so an unverifiable process is never signalled.
 async function listensOn(pid: number, port: number): Promise<boolean> {
-  const lsof = await run("lsof", ["-nP", "-a", "-p", String(pid), `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
-  if (lsof.code === 0) return lsof.stdout.split(/\s+/).includes(String(pid));
-  if (lsof.code !== "ENOENT") return false;
-  try {
-    const response = await fetch(`http://127.0.0.1:${port}/__gtfs_viz/api/dataset`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    await response.arrayBuffer().catch(() => undefined);
-    return (response.headers.get("content-type") ?? "").includes("json");
-  } catch {
+  const inodes = await procListeningInodes(port);
+  if (inodes) {
+    const fds = await readdir(`/proc/${pid}/fd`).catch(() => [] as string[]);
+    for (const fd of fds) {
+      const link = await readlink(`/proc/${pid}/fd/${fd}`).catch(() => "");
+      const socket = /^socket:\[(\d+)\]$/.exec(link);
+      if (socket && inodes.has(socket[1])) return true;
+    }
     return false;
   }
+  const lsof = await run("lsof", ["-nP", "-a", "-p", String(pid), `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+  return lsof.code === 0 && lsof.stdout.split(/\s+/).includes(String(pid));
 }
 
 const isDaemonCommand = (commandLine: string | null) =>
@@ -142,13 +170,24 @@ const alive = (pid: number) => {
   }
 };
 
+// An exited process that its parent has not reaped yet (a zombie) still answers kill(pid, 0). That happens
+// when the parent never reaps, e.g. a container whose PID 1 is a plain shell.
+const isZombie = async (pid: number) => {
+  const stat = await readFile(`/proc/${pid}/stat`, "utf8").catch(() => null);
+  if (stat !== null) return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z");
+  const ps = await run("ps", ["-o", "stat=", "-p", String(pid)]);
+  return ps.code === 0 && ps.stdout.trim().startsWith("Z");
+};
+
+const exited = async (pid: number) => !alive(pid) || (await isZombie(pid));
+
 const waitForExit = async (pid: number, ms: number) => {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (!alive(pid)) return true;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    if (await exited(pid)) return true;
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  return !alive(pid);
+  return exited(pid);
 };
 
 export type StaleDaemonOutcome = "stopped" | "killed" | "left-running" | "not-a-daemon";
