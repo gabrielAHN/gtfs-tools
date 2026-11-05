@@ -510,7 +510,11 @@ async function daemonIsCurrent(existing: DaemonMetadata): Promise<boolean> {
     const recorded = JSON.parse(await readFile(path.join(existing.packageRoot, "package.json"), "utf-8")) as {
       version?: unknown;
     };
-    return recorded.version === existing.cliVersion;
+    if (recorded.version !== existing.cliVersion) return false;
+    // The daemon serves that install's dashboard/, so it must still be there.
+    await access(path.join(existing.packageRoot, "dashboard", "index.html"));
+    await access(path.join(existing.packageRoot, "dashboard", "dashboard-manifest.json"));
+    return true;
   } catch {
     return false;
   }

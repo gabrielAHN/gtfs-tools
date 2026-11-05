@@ -75,6 +75,9 @@ export async function stopDaemon(): Promise<boolean> {
   }
 
   try {
+    // Only signal the recorded pid when it is verifiably our daemon on the recorded port; after a reboot or
+    // pid reuse it can be any process. An unverifiable daemon exits on its own after the idle timeout.
+    if (!(await isRecordedDaemon(meta))) throw new Error("not the recorded daemon");
     process.kill(meta.pid, "SIGTERM");
     await removeSession(meta.sessionId).catch(() => {});
     await removeAllSessions().catch(() => {});

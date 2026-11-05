@@ -36,9 +36,13 @@ see its CHANGELOG for earlier versions.
   the old `gtfs-viz` skill directory.
 - A plain `npm install -g @gabrielahn/gtfs-viz-cli` also works; the imported dataset is kept.
 - A dashboard daemon that 1.5.x left running is replaced the first time 1.6.0 opens the dashboard.
-  `daemon.json` now records the daemon's `cliVersion` and `packageRoot`; a daemon whose record lacks
-  them or differs is stopped (SIGTERM, then SIGKILL, only after checking its command line and port)
-  and a new one starts, so the dashboard no longer fails with HTTP 500 after an upgrade.
+  `daemon.json` now records the daemon's `cliVersion` and `packageRoot`. A daemon is reused when it runs
+  the same version from an install that still holds that version and its dashboard (so `gtfs-tools` and
+  `gtfs-viz` installed separately share one daemon). Otherwise it is stopped (SIGTERM, then SIGKILL, only
+  after checking its command line and port) and a new one starts, so the dashboard no longer fails with
+  HTTP 500 after an upgrade.
+- `gtfs-tools stop` and a re-import only signal the recorded daemon pid after the same check, so a reused
+  pid is never killed.
 
 ### Added
 - `gtfs-tools import` also takes an `http(s)://` URL or an `s3://`, `s3a://`, `s3n://` or `r2://` object.
