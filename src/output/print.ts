@@ -1,5 +1,9 @@
 import { getFlagString } from "../args.js";
+import { commandName } from "../command-name.js";
 import { IMPORT_USAGE } from "../remote/source.js";
+
+// The command name in every help text: gtfs-tools, or gtfs-viz through the compatibility package.
+const CLI = commandName();
 
 const TRUNCATE_AT = 50;
 const ESC = String.fromCharCode(27);
@@ -111,17 +115,17 @@ const commandHelp: Record<string, string> = {
          duckdb -c "CREATE PERSISTENT SECRET (TYPE r2, KEY_ID '…', SECRET '…', ACCOUNT_ID '…')"
   S3-compatible stores such as MinIO use an s3 secret with an ENDPOINT:
          duckdb -c "CREATE PERSISTENT SECRET (TYPE s3, KEY_ID '…', SECRET '…', ENDPOINT 'minio.example.com:9000', URL_STYLE 'path', USE_SSL true)"
-  Secret values are never printed or stored by gtfs-viz.
+  Secret values are never printed or stored by ${CLI}.
 
   The gtfs DuckDB extension installs from the DuckDB community repository, which
   needs a DuckDB v2.0.0 CLI; GTFS_EXTENSION_REPOSITORY selects another repository.
 
   Examples:
-    gtfs-viz import /path/to/feed.zip
-    gtfs-viz import https://example.com/gtfs/feed.zip
-    gtfs-viz import s3://my-bucket/gtfs/feed.zip`,
+    ${CLI} import /path/to/feed.zip
+    ${CLI} import https://example.com/gtfs/feed.zip
+    ${CLI} import s3://my-bucket/gtfs/feed.zip`,
 
-  export: `gtfs-viz export [flags]
+  export: `${CLI} export [flags]
 
   Export edited GTFS data as CSV files. Merges edits with original data.
 
@@ -135,9 +139,9 @@ const commandHelp: Record<string, string> = {
     --no-calendar         Skip calendar.txt and calendar_dates.txt export
     --force               Export even if there are no pending edits`,
 
-  "install-skill": `gtfs-viz install-skill [provider] [flags]
+  "install-skill": `${CLI} install-skill [provider] [flags]
 
-  Install the bundled GTFS Viz skill for an AI provider.
+  Install the bundled gtfs-tools agent skill for an AI provider.
 
   Providers:
     anthropic            Anthropic Claude Code (~/.claude/skills)
@@ -150,25 +154,25 @@ const commandHelp: Record<string, string> = {
     --agent <name>       Backward-compatible alias for --provider
     --target-dir <dir>   Override the provider's skills directory
     --list-providers     List providers and resolved installation paths
-    --force              Replace an existing GTFS Viz skill
+    --force              Replace an existing gtfs-tools skill
 
   Examples:
-    gtfs-viz install-skill openai
-    gtfs-viz install-skill --provider anthropic
-    gtfs-viz install-skill google --force
-    gtfs-viz install-skill --list-providers
+    ${CLI} install-skill openai
+    ${CLI} install-skill --provider anthropic
+    ${CLI} install-skill google --force
+    ${CLI} install-skill --list-providers
 
   A provider is required in non-interactive shells, including with --target-dir.`,
 
-  version: `gtfs-viz version
-  gtfs-viz --version
-  gtfs-viz -v
+  version: `${CLI} version
+  ${CLI} --version
+  ${CLI} -v
 
-  Show the installed GTFS Viz CLI version.`,
+  Show the installed gtfs-tools version.`,
 
-  update: `gtfs-viz update [flags]
+  update: `${CLI} update [flags]
 
-  Update the globally installed GTFS Viz CLI to the latest npm release.
+  Update the globally installed CLI to the latest npm release.
 
   Flags:
     --check              Check the installed and latest versions without updating
@@ -178,11 +182,11 @@ const commandHelp: Record<string, string> = {
     --target-dir <dir>   Override the refreshed skill directory
 
   Examples:
-    gtfs-viz update --check
-    gtfs-viz update
-    gtfs-viz update --provider openai`,
+    ${CLI} update --check
+    ${CLI} update
+    ${CLI} update --provider openai`,
 
-  station: `gtfs-viz station <name|id> [flags]
+  station: `${CLI} station <name|id> [flags]
 
   Show station info in the dashboard, or print station data.
 
@@ -198,7 +202,7 @@ const commandHelp: Record<string, string> = {
     --format json           Output as JSON
     --view <view>           Dashboard view: info (default), map, table`,
 
-  "stop-info": `gtfs-viz stop-info <name|id> [flags]
+  "stop-info": `${CLI} stop-info <name|id> [flags]
 
   Show stop in the dashboard map with popup, or print stop data.
 
@@ -214,7 +218,7 @@ const commandHelp: Record<string, string> = {
     --format json         Output as JSON
     --view <view>         Dashboard view: map (default), table`,
 
-  station_connections: `gtfs-viz station_connections <name|id> [flags]
+  station_connections: `${CLI} station_connections <name|id> [flags]
 
   Show station connection graph.
 
@@ -225,7 +229,7 @@ const commandHelp: Record<string, string> = {
     --format json           Output as JSON
     --view <view>           Pathway view: flow (default), map, table, end`,
 
-  station_pathways: `gtfs-viz station_pathways <name|id> [flags]
+  station_pathways: `${CLI} station_pathways <name|id> [flags]
 
   Show station parts and pathways.
 
@@ -237,7 +241,7 @@ const commandHelp: Record<string, string> = {
     --format json           Output as JSON
     --view <view>           Pathway view: flow (default), map, table, end`,
 
-  station_routes: `gtfs-viz station_routes <name|id> [flags]
+  station_routes: `${CLI} station_routes <name|id> [flags]
 
   Show shortest-path routes between station parts.
 
@@ -249,7 +253,7 @@ const commandHelp: Record<string, string> = {
     --data                     Print rows instead of opening dashboard
     --format json              Output as JSON`,
 
-  station_shortest_route: `gtfs-viz station_shortest_route <name|id> [flags]
+  station_shortest_route: `${CLI} station_shortest_route <name|id> [flags]
 
   Find the fastest entrance-to-exit route by time.
 
@@ -258,7 +262,7 @@ const commandHelp: Record<string, string> = {
     --data                     Print the route instead of opening dashboard
     --format json              Output as JSON`,
 
-  edit_pathway: `gtfs-viz edit_pathway <name|id> [flags]
+  edit_pathway: `${CLI} edit_pathway <name|id> [flags]
 
   Open the pathway edit form in the dashboard.
 
@@ -268,7 +272,7 @@ const commandHelp: Record<string, string> = {
     --data                  Print pathway data instead
     --view <view>           Pathway view: flow (default), map, table, end`,
 
-  edit_stop: `gtfs-viz edit_stop <name|id> [flags]
+  edit_stop: `${CLI} edit_stop <name|id> [flags]
 
   Open the stop/station-part edit form in the dashboard.
 
@@ -278,7 +282,7 @@ const commandHelp: Record<string, string> = {
     --stop-id <id>          Resolve a standalone stop
     --data                  Print stop data instead`,
 
-  calendar: `gtfs-viz calendar [<service-id>] [flags]
+  calendar: `${CLI} calendar [<service-id>] [flags]
 
   List services or show calendar data for a service. Opens dashboard by default.
 
@@ -294,11 +298,11 @@ const commandHelp: Record<string, string> = {
     --format json           JSON output
 
   Examples:
-    gtfs-viz calendar --data                        List all services
-    gtfs-viz calendar --route R1 --data             Services for route R1
-    gtfs-viz calendar SAT-1 --data                  Calendar for service SAT-1`,
+    ${CLI} calendar --data                        List all services
+    ${CLI} calendar --route R1 --data             Services for route R1
+    ${CLI} calendar SAT-1 --data                  Calendar for service SAT-1`,
 
-  shapes: `gtfs-viz shapes [<shape-id>] [flags]
+  shapes: `${CLI} shapes [<shape-id>] [flags]
 
   List shapes or show shape points. Opens route map by default.
 
@@ -314,11 +318,11 @@ const commandHelp: Record<string, string> = {
     --format json           JSON output
 
   Examples:
-    gtfs-viz shapes --data                          List all shapes
-    gtfs-viz shapes --route R1 --data               Shapes for route R1
-    gtfs-viz shapes shape-123 --data                Points for shape-123`,
+    ${CLI} shapes --data                          List all shapes
+    ${CLI} shapes --route R1 --data               Shapes for route R1
+    ${CLI} shapes shape-123 --data                Points for shape-123`,
 
-  "route-bands": `gtfs-viz route-bands [flags]
+  "route-bands": `${CLI} route-bands [flags]
 
   Build the parallel route-line bands from the imported feed. Routes sharing a
   corridor are converged onto one centreline and assigned lateral lanes, written
@@ -332,11 +336,11 @@ const commandHelp: Record<string, string> = {
     --format json           JSON output
 
   Examples:
-    gtfs-viz route-bands                             Build bands, print a summary
-    gtfs-viz route-bands --data                      Build bands, print counts
-    gtfs-viz route-bands --status --data             Report existing band counts`,
+    ${CLI} route-bands                             Build bands, print a summary
+    ${CLI} route-bands --data                      Build bands, print counts
+    ${CLI} route-bands --status --data             Report existing band counts`,
 
-  edit_table: `gtfs-viz edit_table [table] [flags]
+  edit_table: `${CLI} edit_table [table] [flags]
 
   Show edit tracking tables.
 
@@ -356,7 +360,7 @@ const commandHelp: Record<string, string> = {
     --trips-page <n>      Open the trip edits table at page n
     --trips-page-size <n> Set trip edits page size: 10, 20, 30, or 50`,
 
-  edits: `gtfs-viz edits [<trip-id>] [flags]
+  edits: `${CLI} edits [<trip-id>] [flags]
 
   Review pending edits by category or open Edits & Export.
 
@@ -374,12 +378,12 @@ const commandHelp: Record<string, string> = {
     --trips-page-size <n>   Set trip edits page size: 10, 20, 30, or 50
 
   Examples:
-    gtfs-viz edits
-    gtfs-viz edits --url-only
-    gtfs-viz edits --trip trip-123 --compare-view map --url-only
-    gtfs-viz edits --view table --trips-page 3 --trips-page-size 20 --url-only`,
+    ${CLI} edits
+    ${CLI} edits --url-only
+    ${CLI} edits --trip trip-123 --compare-view map --url-only
+    ${CLI} edits --view table --trips-page 3 --trips-page-size 20 --url-only`,
 
-  reroute: `gtfs-viz reroute [flags]
+  reroute: `${CLI} reroute [flags]
 
   Replace a section of one trip with the stops from a donor trip.
   Donor schedule time does not need to overlap the affected trip. The shared
@@ -398,18 +402,18 @@ const commandHelp: Record<string, string> = {
     --url-only              Apply and print the edited trip URL without opening it
 
   Open form:
-    gtfs-viz reroute --trip <id>
+    ${CLI} reroute --trip <id>
 
   Apply:
-    gtfs-viz reroute --trip <id> --via <donor-id> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
+    ${CLI} reroute --trip <id> --via <donor-id> --from "W 4 St-Wash Sq" --to "Jay St-MetroTech"
 
   Review:
-    gtfs-viz query --sql "SELECT * FROM get_trip_reroute_routes('trip-id')" --data
-    gtfs-viz edits --trip <id>
-    gtfs-viz edits --trip <id> --compare-view map --url-only
-    gtfs-viz trip <id> --compare <donor-id> --view map --url-only`,
+    ${CLI} query --sql "SELECT * FROM get_trip_reroute_routes('trip-id')" --data
+    ${CLI} edits --trip <id>
+    ${CLI} edits --trip <id> --compare-view map --url-only
+    ${CLI} trip <id> --compare <donor-id> --view map --url-only`,
 
-  add_connection: `gtfs-viz add_connection [flags]
+  add_connection: `${CLI} add_connection [flags]
 
   Add a new pathway connection between two station parts.
 
@@ -427,7 +431,7 @@ const commandHelp: Record<string, string> = {
     --reversed-signposted-as <text>  Reversed signposted name
     --pathway-id <id>                Custom ID (auto-generated if omitted)`,
 
-  update_connection: `gtfs-viz update_connection [flags]
+  update_connection: `${CLI} update_connection [flags]
 
   Update an existing pathway connection. Only provided flags change.
 
@@ -445,14 +449,14 @@ const commandHelp: Record<string, string> = {
     --signposted-as <text>           New signposted name
     --reversed-signposted-as <text>  New reversed signposted name`,
 
-  delete_connection: `gtfs-viz delete_connection [flags]
+  delete_connection: `${CLI} delete_connection [flags]
 
   Delete a pathway connection.
 
   Flags:
     --pathway-id <id>    Connection to delete (required)`,
 
-  add_node: `gtfs-viz add_node [flags]
+  add_node: `${CLI} add_node [flags]
 
   Add a new stop or station part.
 
@@ -466,7 +470,7 @@ const commandHelp: Record<string, string> = {
     --level-id <id>             Level ID
     --wheelchair <status>       Wheelchair boarding status`,
 
-  update_node: `gtfs-viz update_node [flags]
+  update_node: `${CLI} update_node [flags]
 
   Update an existing stop or station part. Only provided flags change.
 
@@ -480,14 +484,14 @@ const commandHelp: Record<string, string> = {
     --level-id <id>             New level ID
     --wheelchair <status>       New wheelchair status`,
 
-  delete_node: `gtfs-viz delete_node [flags]
+  delete_node: `${CLI} delete_node [flags]
 
   Delete a stop or station part.
 
   Flags:
     --stop-id <id>    Node to delete (required)`,
 
-  stations: `gtfs-viz stations [<id>] [flags]
+  stations: `${CLI} stations [<id>] [flags]
 
   Browse stations, or select one by ID/name. Opens dashboard by default.
 
@@ -505,7 +509,7 @@ const commandHelp: Record<string, string> = {
     --url-only              Print URL without opening
     --view <view>           map (default), table`,
 
-  stops: `gtfs-viz stops [<id>] [flags]
+  stops: `${CLI} stops [<id>] [flags]
 
   Browse stops, or select one by ID/name. Opens dashboard by default.
 
@@ -523,7 +527,7 @@ const commandHelp: Record<string, string> = {
     --url-only              Print URL without opening
     --view <view>           map (default), table`,
 
-  routes: `gtfs-viz routes [<id>] [flags]
+  routes: `${CLI} routes [<id>] [flags]
 
   Browse routes, or select one by ID/name. Opens dashboard by default.
 
@@ -546,8 +550,8 @@ const commandHelp: Record<string, string> = {
     info                    Route details (default when --id given)
     service                 Trip/service schedule (use -h for subflags)`,
 
-  "routes:service": `gtfs-viz routes --id <id> --view service [flags]
-  gtfs-viz route <name|id> --view service [flags]
+  "routes:service": `${CLI} routes --id <id> --view service [flags]
+  ${CLI} route <name|id> --view service [flags]
 
   Show route service and trip schedule. Opens dashboard by default.
 
@@ -565,13 +569,13 @@ const commandHelp: Record<string, string> = {
     --format json           JSON output
 
   Examples:
-    gtfs-viz route "Red Line" service
-    gtfs-viz route "Red Line" --service weekday-1 --data
-    gtfs-viz route "Red Line" --trip trip-456 --data
-    gtfs-viz route "Red Line" --compare trip-1,trip-2 --data
-    gtfs-viz routes --id R1 --view service --format json`,
+    ${CLI} route "Red Line" service
+    ${CLI} route "Red Line" --service weekday-1 --data
+    ${CLI} route "Red Line" --trip trip-456 --data
+    ${CLI} route "Red Line" --compare trip-1,trip-2 --data
+    ${CLI} routes --id R1 --view service --format json`,
 
-  route: `gtfs-viz route <name|id> [flags]
+  route: `${CLI} route <name|id> [flags]
 
   Show route info in the dashboard, or print route data.
 
@@ -592,7 +596,7 @@ const commandHelp: Record<string, string> = {
     table                   Tabular view
     service                 Trip/service schedule`,
 
-  trips: `gtfs-viz trips [<trip-id>] [flags]
+  trips: `${CLI} trips [<trip-id>] [flags]
 
   List trips or show a single trip's stop times. Opens dashboard by default.
 
@@ -622,15 +626,15 @@ const commandHelp: Record<string, string> = {
     --format json           JSON output
 
   Examples:
-    gtfs-viz trips --data                           List all trips
-    gtfs-viz trips --route R1 --data                Trips for route R1
-    gtfs-viz trips --route R1 --service SAT --data  Trips for route+service
-    gtfs-viz trips trip-123 --data                  Stop times for trip-123
-    gtfs-viz trips --compare t1,t2 --data           Compare stop times
-    gtfs-viz trips --compare t1,t2,t3               Compare trips in dashboard
-    gtfs-viz trips --compare t1,t2 --view map       Compare on map`,
+    ${CLI} trips --data                           List all trips
+    ${CLI} trips --route R1 --data                Trips for route R1
+    ${CLI} trips --route R1 --service SAT --data  Trips for route+service
+    ${CLI} trips trip-123 --data                  Stop times for trip-123
+    ${CLI} trips --compare t1,t2 --data           Compare stop times
+    ${CLI} trips --compare t1,t2,t3               Compare trips in dashboard
+    ${CLI} trips --compare t1,t2 --view map       Compare on map`,
 
-  trip: `gtfs-viz trip <trip-id> [flags]
+  trip: `${CLI} trip <trip-id> [flags]
 
   Show trip stop times in the dashboard, or print trip data.
 
@@ -652,16 +656,16 @@ const commandHelp: Record<string, string> = {
     info                    Trip metadata (with --data)
 
   Examples:
-    gtfs-viz trip trip-123                              Open in dashboard
-    gtfs-viz trip trip-123 --view timeline               Open timeline view
-    gtfs-viz trip trip-123 --view map                    Open map view
-    gtfs-viz trip trip-123 --compare trip-456            Compare two trips
-    gtfs-viz trip trip-123 --compare trip-456 --view map Compare on map
-    gtfs-viz trip trip-123 --data                        Print stop times
-    gtfs-viz trip trip-123 --data --view info            Print trip metadata
-    gtfs-viz trip trip-123 --compare trip-456 --data     Compare stop times`,
+    ${CLI} trip trip-123                              Open in dashboard
+    ${CLI} trip trip-123 --view timeline               Open timeline view
+    ${CLI} trip trip-123 --view map                    Open map view
+    ${CLI} trip trip-123 --compare trip-456            Compare two trips
+    ${CLI} trip trip-123 --compare trip-456 --view map Compare on map
+    ${CLI} trip trip-123 --data                        Print stop times
+    ${CLI} trip trip-123 --data --view info            Print trip metadata
+    ${CLI} trip trip-123 --compare trip-456 --data     Compare stop times`,
 
-  query: `gtfs-viz query [flags]
+  query: `${CLI} query [flags]
 
   Run SQL or a named query against the local DuckDB database.
 
@@ -678,7 +682,7 @@ const commandHelp: Record<string, string> = {
     route-shapes, station-service-routes, stop-service-routes,
     edit-pathways, edit-stops`,
 
-  view: `gtfs-viz view [flags]
+  view: `${CLI} view [flags]
 
   Open a dashboard view in the browser.
 
@@ -697,16 +701,16 @@ const commandHelp: Record<string, string> = {
     stations/pathways/table/start, stations/pathways/table/end,
     stops/map, stops/table, trips/table, export`,
 
-  stop: `gtfs-viz stop
+  stop: `${CLI} stop
 
   Stop the dashboard daemon and clear session metadata. Imported data remains available.`,
 
-  restart: `gtfs-viz restart
+  restart: `${CLI} restart
 
   Stop the dashboard daemon and remove the local DuckDB/feed import.
   Run ${IMPORT_USAGE} again before opening dashboard views.`,
 
-  clean: `gtfs-viz clean
+  clean: `${CLI} clean
 
   Stop the dashboard daemon and remove all imported data and session metadata.`,
 };
@@ -749,7 +753,9 @@ export const printCommandHelp = (command: string): boolean => {
 };
 
 export const printHelp = () => {
-  console.log(`Usage: gtfs-viz <command> [flags]
+  console.log(`Usage: ${CLI} <command> [flags]
+
+Start with ${IMPORT_USAGE}, then ${CLI} status. ${CLI} examples lists more.
 
 Import & Status:
   import <feed.zip|https://…|s3://…|r2://…>
@@ -801,77 +807,77 @@ Help:
   help [command]                     Same as h
 
 Global flags: -v, --version, --data, --format json, --url-only, --view <view>
-Run gtfs-viz h <command>, gtfs-viz help <command>, or gtfs-viz <command> -h for details.`);
+Run ${CLI} h <command>, ${CLI} help <command>, or ${CLI} <command> -h for details.`);
 };
 
 export const printExamples = () => {
   console.log(`Import & browse:
-  gtfs-viz import /path/to/feed.zip
-  gtfs-viz import https://example.com/gtfs/feed.zip
-  gtfs-viz import s3://my-bucket/gtfs/feed.zip
-  gtfs-viz status
-  gtfs-viz stations
-  gtfs-viz stations --name "Park" --pathways "✅"
-  gtfs-viz stations --format json
-  gtfs-viz stops --name "Albany"
-  gtfs-viz routes --type Bus
-  gtfs-viz route "Red Line"
-  gtfs-viz trips --route R1 --data
-  gtfs-viz trip trip-123 --data
+  ${CLI} import /path/to/feed.zip
+  ${CLI} import https://example.com/gtfs/feed.zip
+  ${CLI} import s3://my-bucket/gtfs/feed.zip
+  ${CLI} status
+  ${CLI} stations
+  ${CLI} stations --name "Park" --pathways "✅"
+  ${CLI} stations --format json
+  ${CLI} stops --name "Albany"
+  ${CLI} routes --type Bus
+  ${CLI} route "Red Line"
+  ${CLI} trips --route R1 --data
+  ${CLI} trip trip-123 --data
 
 Lookup & dashboard:
-  gtfs-viz station "Park Street"
-  gtfs-viz station --id place-pktrm --data
-  gtfs-viz stop-info --stop-id 10011
-  gtfs-viz route --id Red --data
-  gtfs-viz stations --view map
-  gtfs-viz route "Red Line" --view service --data
-  gtfs-viz view --view stops/map --map-focus 42.355,-71.06,12
+  ${CLI} station "Park Street"
+  ${CLI} station --id place-pktrm --data
+  ${CLI} stop-info --stop-id 10011
+  ${CLI} route --id Red --data
+  ${CLI} stations --view map
+  ${CLI} route "Red Line" --view service --data
+  ${CLI} view --view stops/map --map-focus 42.355,-71.06,12
 
 Pathways & routes:
-  gtfs-viz station_connections "Park Street" --data
-  gtfs-viz station_pathways place-pktrm --node-id node-pktrm-stair7-gl --data
-  gtfs-viz station_routes "South Station" --data --time-interval 60
-  gtfs-viz station_routes "South Station" --data --connection-type "Exit/Entrance"
-  gtfs-viz station_shortest_route "South Station" --data
+  ${CLI} station_connections "Park Street" --data
+  ${CLI} station_pathways place-pktrm --node-id node-pktrm-stair7-gl --data
+  ${CLI} station_routes "South Station" --data --time-interval 60
+  ${CLI} station_routes "South Station" --data --connection-type "Exit/Entrance"
+  ${CLI} station_shortest_route "South Station" --data
 
 Edit connections:
-  gtfs-viz add_connection --from node-lobby --to node-platform --traversal-time 45
-  gtfs-viz add_connection --from door-1 --to node-lobby --bidirectional --pathway-mode 2
-  gtfs-viz update_connection --pathway-id pw-123 --traversal-time 60
-  gtfs-viz delete_connection --pathway-id pw-123
+  ${CLI} add_connection --from node-lobby --to node-platform --traversal-time 45
+  ${CLI} add_connection --from door-1 --to node-lobby --bidirectional --pathway-mode 2
+  ${CLI} update_connection --pathway-id pw-123 --traversal-time 60
+  ${CLI} delete_connection --pathway-id pw-123
 
 Edit nodes:
-  gtfs-viz add_node --stop-id door-new --stop-name "New Entrance" --lat 42.35 --lon -71.06 --location-type "Exit/Entrance" --parent-station place-pktrm
-  gtfs-viz update_node --stop-id door-new --stop-name "Main Entrance"
-  gtfs-viz delete_node --stop-id door-new
-  gtfs-viz edit_table
-  gtfs-viz edits --url-only
-  gtfs-viz edits --trip trip-123 --compare-view map --url-only
-  gtfs-viz edits --view table --trips-page 3 --trips-page-size 20 --url-only
+  ${CLI} add_node --stop-id door-new --stop-name "New Entrance" --lat 42.35 --lon -71.06 --location-type "Exit/Entrance" --parent-station place-pktrm
+  ${CLI} update_node --stop-id door-new --stop-name "Main Entrance"
+  ${CLI} delete_node --stop-id door-new
+  ${CLI} edit_table
+  ${CLI} edits --url-only
+  ${CLI} edits --trip trip-123 --compare-view map --url-only
+  ${CLI} edits --view table --trips-page 3 --trips-page-size 20 --url-only
 
 Export:
-  gtfs-viz export
-  gtfs-viz export --output ./exported --no-pathways --no-routes
-  gtfs-viz export --force
+  ${CLI} export
+  ${CLI} export --output ./exported --no-pathways --no-routes
+  ${CLI} export --force
 
 SQL:
-  gtfs-viz query --sql "SELECT * FROM StationsTable"
-  gtfs-viz query --sql "SELECT * FROM get_station_stops('place-pktrm')"
-  gtfs-viz query --name station-info --args-json '{"stationId":"place-pktrm"}' --data
+  ${CLI} query --sql "SELECT * FROM StationsTable"
+  ${CLI} query --sql "SELECT * FROM get_station_stops('place-pktrm')"
+  ${CLI} query --name station-info --args-json '{"stationId":"place-pktrm"}' --data
 
 Cleanup:
-  gtfs-viz stop
-  gtfs-viz restart
-  gtfs-viz clean
+  ${CLI} stop
+  ${CLI} restart
+  ${CLI} clean
 
 Agent skills and help:
-  gtfs-viz --version
-  gtfs-viz update --check
-  gtfs-viz update
-  gtfs-viz install-skill --list-providers
-  gtfs-viz install-skill openai
-  gtfs-viz h install-skill
-  gtfs-viz h reroute
-  gtfs-viz h edits`);
+  ${CLI} --version
+  ${CLI} update --check
+  ${CLI} update
+  ${CLI} install-skill --list-providers
+  ${CLI} install-skill openai
+  ${CLI} h install-skill
+  ${CLI} h reroute
+  ${CLI} h edits`);
 };

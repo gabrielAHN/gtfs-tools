@@ -5,7 +5,6 @@ import path from "node:path";
 import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { stdin as processStdin, stdout as processStdout } from "node:process";
-import { fileURLToPath } from "node:url";
 
 import { dashboardViewForNamedQuery, sqlForNamedQuery } from "./gtfs/named-queries.js";
 
@@ -62,21 +61,12 @@ import type { FeedSource } from "./remote/source.js";
 import { safeTerminalText } from "./output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "./remote/download.js";
 
-import { realpathSync } from "node:fs";
+import { commandName } from "./command-name.js";
+import { packageRoot } from "./package-root.js";
 
-const resolvePackageRoot = () => {
-  // Resolve the real path of the running script (follows symlinks from npm global bin)
-  try {
-    const realScript = realpathSync(process.argv[1]);
-    const dir = path.dirname(realScript);
-    return dir.endsWith("dist") ? path.resolve(dir, "..") : path.resolve(dir, "..");
-  } catch {
-    // Fallback for import.meta.url (dev mode with tsc output)
-    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  }
-};
-const packageRoot = resolvePackageRoot();
-const cliPackageName = "@gabrielahn/gtfs-viz-cli";
+// `update` reinstalls the package that provides the running command: the compatibility package for
+// gtfs-viz (it pins the same gtfs-tools version), gtfs-tools otherwise.
+const cliPackageName = commandName() === "gtfs-viz" ? "@gabrielahn/gtfs-viz-cli" : "@gabrielahn/gtfs-tools";
 
 const readCliVersion = async () => {
   const packageJson = JSON.parse(
@@ -1457,7 +1447,7 @@ const openTripDashboard = async (
 const commandTrip = async (args: Args) => {
   ensureOutputMode(args);
   const tripId = getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "id") || getPositionalId(args);
-  if (!tripId) throw new Error("Trip ID is required. Usage: gtfs-viz trip <trip-id>");
+  if (!tripId) throw new Error(`Trip ID is required. Usage: ${commandName()} trip <trip-id>`);
   const compareRaw = getFlagString(args.flags, "compare");
 
   if (wantsDataOutput(args.flags)) {
@@ -2698,7 +2688,7 @@ const commandReroute = async (args: Args) => {
   const to = getFlagString(args.flags, "to");
   if (!tripId)
     throw new Error(
-      'Usage: gtfs-viz reroute --trip <trip_id> [--via <donor_trip_id> --from "<boundary stop>" --to "<boundary stop>"]',
+      `Usage: ${commandName()} reroute --trip <trip_id> [--via <donor_trip_id> --from "<boundary stop>" --to "<boundary stop>"]`,
     );
   if (!donor && !from && !to) {
     if (wantsDataOutput(args.flags)) {
@@ -2766,7 +2756,7 @@ const commandSplitTrip = async (args: Args) => {
   const newHeadsign = getFlagString(args.flags, "new-headsign");
   if (!tripId || !gapFrom || !gapTo || !newTripId)
     throw new Error(
-      'Usage: gtfs-viz split_trip --trip <trip_id> --gap-from "<stop>" --gap-to "<stop>" --new-trip-id <id2> [--new-headsign "<h>"]',
+      `Usage: ${commandName()} split_trip --trip <trip_id> --gap-from "<stop>" --gap-to "<stop>" --new-trip-id <id2> [--new-headsign "<h>"]`,
     );
   await splitTrip(ds.dbPath, tripId, gapFrom, gapTo, newTripId, newHeadsign);
   await refreshTrips(ds.dbPath);
@@ -2781,7 +2771,7 @@ const commandRunLocal = async (args: Args) => {
   const from = getFlagString(args.flags, "from");
   const to = getFlagString(args.flags, "to");
   if (!tripId || !donor || !from || !to)
-    throw new Error('Usage: gtfs-viz run_local --trip <trip_id> --via <local_trip> --from "<stop>" --to "<stop>"');
+    throw new Error(`Usage: ${commandName()} run_local --trip <trip_id> --via <local_trip> --from "<stop>" --to "<stop>"`);
   const changed = await rerouteViaDonor(ds.dbPath, tripId, donor, from, to);
   await refreshTrips(ds.dbPath);
   console.log(changed ? `${tripId} now runs local between "${from}" and "${to}" (via ${donor})` : `No change for ${tripId}`);
@@ -2871,7 +2861,7 @@ const commandApply = async (args: Args) => {
   let raw: string | undefined = inline;
   if (!raw && fileArg) raw = await readFile(path.resolve(fileArg), "utf-8");
   if (!raw && hasFlag(args.flags, "stdin")) raw = await readStdin();
-  if (!raw) throw new Error("Provide a changeset: gtfs-viz apply <changeset.json> | --json '<json>' | --stdin");
+  if (!raw) throw new Error(`Provide a changeset: ${commandName()} apply <changeset.json> | --json '<json>' | --stdin`);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -3089,7 +3079,7 @@ const commandSkillPath = () => {
 };
 
 const commandVersion = async () => {
-  console.log(`gtfs-viz ${await readCliVersion()}`);
+  console.log(`${commandName()} ${await readCliVersion()}`);
 };
 
 type SkillProvider = "anthropic" | "openai" | "google" | "generic";
@@ -3226,7 +3216,7 @@ const commandUpdate = async (args: Args) => {
   } else if (comparison < 0 || force) {
     console.log(`Updating ${cliPackageName} to ${latestVersion}...`);
     await runUpdateInstall(latestVersion);
-    console.log(`Updated gtfs-viz to ${latestVersion}`);
+    console.log(`Updated ${cliPackageName} to ${latestVersion}`);
   } else if (comparison === 0) {
     console.log("Status: already up to date");
   } else {

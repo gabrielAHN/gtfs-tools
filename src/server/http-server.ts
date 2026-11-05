@@ -2,7 +2,6 @@ import { createReadStream, existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { executeRows } from "../duckdb/runner.js";
 import type {
   DatasetMetadata,
@@ -21,18 +20,8 @@ type QueryRecord = {
   error?: string;
 };
 
-import { realpathSync } from "node:fs";
+import { packageRoot } from "../package-root.js";
 
-const resolvePackageRoot = () => {
-  try {
-    const realScript = realpathSync(process.argv[1]);
-    const dir = path.dirname(realScript);
-    return dir.endsWith("dist") ? path.resolve(dir, "..") : path.resolve(dir, "..", "..");
-  } catch {
-    return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-  }
-};
-const packageRoot = resolvePackageRoot();
 const repoRoot = path.resolve(packageRoot, "..", "..");
 const packagedDashboard = path.resolve(packageRoot, "dashboard");
 const repoDashboard = path.resolve(repoRoot, "dist");

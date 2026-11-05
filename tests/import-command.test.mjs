@@ -9,7 +9,7 @@ import path from "node:path"
 import test from "node:test"
 import { build } from "esbuild"
 
-const USAGE = "gtfs-viz import <feed.zip|https://…|s3://…|r2://…>"
+const USAGE = "gtfs-tools import <feed.zip|https://…|s3://…|r2://…>"
 
 const run = (command, args, options = {}) =>
   new Promise((resolve, reject) => {
@@ -189,8 +189,8 @@ test("usage, help and hints show every import form", async (t) => {
   const general = await env.cli("help")
   assert.ok(general.stdout.includes("import <feed.zip|https://…|s3://…|r2://…>"), general.stdout)
   const examples = await env.cli("examples")
-  assert.match(examples.stdout, /gtfs-viz import https:\/\//)
-  assert.match(examples.stdout, /gtfs-viz import s3:\/\//)
+  assert.match(examples.stdout, /gtfs-tools import https:\/\//)
+  assert.match(examples.stdout, /gtfs-tools import s3:\/\//)
   const tables = await env.cli("tables")
   assert.ok(tables.stderr.includes(`Run ${USAGE} first.`), tables.stderr)
   const restart = await env.cli("restart")
