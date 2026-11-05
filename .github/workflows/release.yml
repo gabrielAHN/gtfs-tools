@@ -2,9 +2,9 @@ name: Release & Publish
 
 # A merged PR that bumps the version in package.json (or compat/gtfs-viz-cli/package.json) releases it:
 #
-# 1. build: with read-only contents and no npm token, check, build (the CLI bundle plus the dashboard pinned in
-#    dashboard.lock.json, sha256-checked) and npm pack @gabrielahn/gtfs-tools and the @gabrielahn/gtfs-viz-cli
-#    compatibility package. The two .tgz files are handed over as an artifact.
+# 1. build: with read-only contents and no npm token, check, build (the CLI bundle plus the dashboard built from
+#    the gtfs-viz submodule at its pinned commit) and npm pack @gabrielahn/gtfs-tools and the
+#    @gabrielahn/gtfs-viz-cli compatibility package. The two .tgz files are handed over as an artifact.
 # 2. publish: only after build succeeded, tag v<version> on the built commit, create the GitHub release, then
 #    npm publish the gtfs-tools tarball and then the compat tarball. It installs nothing and runs no package
 #    scripts. A package whose version is already on npm is skipped.
@@ -63,11 +63,13 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
-      # The commit that publish tags. No token stays in .git/config while npm ci runs install scripts.
+      # The commit that publish tags, with the gtfs-viz submodule the dashboard is built from. No token stays
+      # in .git/config while npm ci and yarn run install scripts.
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          submodules: true
           persist-credentials: false
 
       - name: Setup Node.js
@@ -104,10 +106,23 @@ jobs:
       - name: Check
         run: npm run check
 
-      # build:cli plus the dashboard pinned in dashboard.lock.json, checked against its sha256 (never
-      # --allow-unpinned).
+      # build:cli plus the dashboard: yarn install --frozen-lockfile and yarn build:dashboard in the gtfs-viz
+      # submodule (the runner's yarn 1.x), installed into dashboard/.
       - name: Build
         run: npm run build
+
+      - name: Check the dashboard is the build of the pinned gtfs-viz commit
+        run: |
+          PINNED=$(git rev-parse HEAD:gtfs-viz)
+          export PINNED
+          node -e '
+            const manifest = require("./dashboard/dashboard-manifest.json");
+            console.log(JSON.stringify(manifest));
+            if (manifest.commit !== process.env.PINNED || manifest.cliApi !== 1) {
+              console.error("::error::dashboard/dashboard-manifest.json is not the cliApi 1 build of gtfs-viz " + process.env.PINNED);
+              process.exit(1);
+            }
+          '
 
       # npm pack runs the compatibility package's prepack, which generates its skills/gtfs-viz copy.
       - name: Pack both packages
@@ -134,6 +149,10 @@ jobs:
               missing=1
             fi
           done
+          if tar -tzf "gabrielahn-gtfs-tools-$VERSION.tgz" | grep -q '^package/gtfs-viz/'; then
+            echo "::error::gabrielahn-gtfs-tools-$VERSION.tgz contains the gtfs-viz submodule"
+            missing=1
+          fi
           exit "$missing"
 
       - name: Upload the packages

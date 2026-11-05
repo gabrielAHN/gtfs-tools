@@ -18,9 +18,11 @@ jobs:
     name: Build, check and test
     runs-on: ubuntu-24.04
     steps:
-      # No token stays in .git/config while npm ci runs dependency install scripts.
+      # No token stays in .git/config while npm ci runs dependency install scripts. The gtfs-viz submodule
+      # holds the web app the dashboard is built from.
       - uses: actions/checkout@v4
         with:
+          submodules: true
           persist-credentials: false
 
       - uses: actions/setup-node@v4
@@ -31,9 +33,23 @@ jobs:
       - run: npm ci
       - run: npm run check
 
-      # Builds the CLI and installs the gtfs-viz dashboard pinned in dashboard.lock.json (sha256-checked;
-      # never --allow-unpinned here).
+      # Builds the CLI, then the dashboard from the gtfs-viz submodule (yarn install --frozen-lockfile and
+      # yarn build:dashboard there, with the runner's yarn 1.x) and installs it into dashboard/.
       - run: npm run build
+
+      # The installed dashboard is the CLI-mode build of the pinned submodule commit.
+      - name: Dashboard built from the gtfs-viz submodule
+        run: |
+          PINNED=$(git rev-parse HEAD:gtfs-viz)
+          export PINNED
+          node -e '
+            const manifest = require("./dashboard/dashboard-manifest.json");
+            console.log(JSON.stringify(manifest));
+            if (manifest.commit !== process.env.PINNED || manifest.cliApi !== 1) {
+              console.error("::error::dashboard/dashboard-manifest.json is not the cliApi 1 build of gtfs-viz " + process.env.PINNED);
+              process.exit(1);
+            }
+          '
 
       - name: Unit tests
         run: node --test tests/*.test.mjs
@@ -54,6 +70,10 @@ jobs:
               ...["bin/gtfs-viz.js", "skills/gtfs-viz/SKILL.md", "README.md"].filter((f) => !compat.has(f)).map((f) => "compat/gtfs-viz-cli/" + f),
             ];
             if (missing.length) { console.error("Missing from the npm packages: " + missing.join(", ")); process.exit(1); }
+            // The gtfs-viz submodule (sources and node_modules) is never published, nor are source maps.
+            const unwanted = [...tools].filter((f) => f.startsWith("gtfs-viz/") || f.endsWith(".map"));
+            if (unwanted.length) { console.error("Must not be in @gabrielahn/gtfs-tools: " + unwanted.slice(0, 20).join(", ")); process.exit(1); }
+            console.log("@gabrielahn/gtfs-tools: " + tools.size + " files, none under gtfs-viz/");
           '
 
   extension-integration:
@@ -64,9 +84,11 @@ jobs:
       DUCKDB_BIN: ${{ github.workspace }}/build/duckdb-cli/duckdb
       AWS_EC2_METADATA_DISABLED: 'true'
     steps:
-      # No token stays in .git/config while npm ci runs dependency install scripts.
+      # No token stays in .git/config while npm ci runs dependency install scripts. The gtfs-viz submodule
+      # holds the web app the dashboard is built from.
       - uses: actions/checkout@v4
         with:
+          submodules: true
           persist-credentials: false
 
       - uses: actions/setup-node@v4
