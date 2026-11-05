@@ -13,7 +13,8 @@ const read = async (relativePath) =>
 
 const loadNativeDuckDb = async (apiBaseUrl) => {
   const exports = {}
-  const source = await read("../../web/src/lib/cli/nativeDuckDb.ts")
+  // The dashboard's CLI client from gtfs-viz at 819f8df (the dashboard left this repository; see fixtures/README.md).
+  const source = await read("./fixtures/dashboard-cli-client/nativeDuckDb.ts")
   const output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   }).outputText
