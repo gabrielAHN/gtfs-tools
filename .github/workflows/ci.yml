@@ -18,7 +18,10 @@ jobs:
     name: Build, check and test
     runs-on: ubuntu-24.04
     steps:
+      # No token stays in .git/config while npm ci runs dependency install scripts.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -64,7 +67,10 @@ jobs:
       DUCKDB_BIN: ${{ github.workspace }}/build/duckdb-cli/duckdb
       AWS_EC2_METADATA_DISABLED: 'true'
     steps:
+      # No token stays in .git/config while npm ci runs dependency install scripts.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:

@@ -310,7 +310,9 @@ the same skill under its old name, with a note that it is now `gtfs-tools`. The 
 gtfs-viz-cli 1.5.x's own `update --provider` installs it when upgrading. Releases bump the
 version in `package.json`, in `compat/gtfs-viz-cli/package.json` (its `version` and its
 `@gabrielahn/gtfs-tools` dependency) and in `skills/gtfs-tools/SKILL.md`, and add a `CHANGELOG.md`
-entry. Merging such a PR tags the release and publishes both packages (`.github/workflows/release.yml`).
+entry. Merging such a PR releases it (`.github/workflows/release.yml`): one job checks, builds and packs
+both packages with read-only access and no npm token; only if that succeeds does a second job tag
+`v<version>`, create the GitHub release and `npm publish` the two packed tarballs, gtfs-tools first.
 
 ## Testing
 
