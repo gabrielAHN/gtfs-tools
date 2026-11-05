@@ -93,7 +93,7 @@ test("gtfs-viz is a git submodule; no release-asset lock or fetch script remains
   for (const gone of ["dashboard.lock.json", "scripts/fetch-dashboard.mjs"]) assert.equal(existsSync(path.join(root, gone)), false, gone)
   assert.match(pkg.scripts.dashboard ?? "", /scripts\/build-dashboard\.mjs/)
   assert.ok(!pkg.files.some((entry) => /gtfs-viz/.test(entry)), "the submodule is never published")
-  const gtfsDuckdb = spawnSync("git", ["grep", "-n", "-i", "github.com/gabrielAHN/gtfs-duckdb"], { cwd: root, encoding: "utf8" }).stdout
+  const gtfsDuckdb = spawnSync("git", ["grep", "-n", "-i", "github.com/gabrielAHN/gtfs-duckdb", "--", ":!tests/split.acceptance.test.mjs"], { cwd: root, encoding: "utf8" }).stdout
   assert.equal(gtfsDuckdb, "", "no tie to the gtfs-duckdb repository")
 })
 
