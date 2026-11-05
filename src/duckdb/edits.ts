@@ -1,13 +1,13 @@
 /**
  * Shared GTFS edit writers for the CLI.
  *
- * Ports the web app's edit logic (packages/web/src/lib/duckdb/DataFetching/fetchRouteData.tsx)
+ * Ports the gtfs-viz web app's edit logic (gtfs-viz packages/web/src/lib/duckdb/DataFetching/fetchRouteData.tsx)
  * so CLI-applied edits are byte-for-byte compatible with UI-applied edits: same Edit*Table rows,
  * same `new` / `new edit` / `edit` / `deleted` status state-machine.
  *
  * Writers are pure DML — they do NOT refresh materialized tables. Callers refresh once after a
  * batch via {@link refreshTrips} / {@link refreshCalendar} (mirrors the web's refreshMaterializedTable,
- * packages/web/src/lib/duckdb/DataEditing/insertData.tsx:110).
+ * gtfs-viz packages/web/src/lib/duckdb/DataEditing/insertData.tsx:110).
  */
 import { executeRows, queryRows, refreshDownloadedDataset } from "./runner.js";
 
