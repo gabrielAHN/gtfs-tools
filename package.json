@@ -43,7 +43,8 @@
   },
   "scripts": {
     "build:cli": "tsc -p tsconfig.json && node scripts/bundle.mjs && chmod +x dist/index.js",
-    "build": "npm run build:cli",
+    "dashboard": "node scripts/fetch-dashboard.mjs",
+    "build": "npm run build:cli && npm run dashboard",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "node --test tests/*.test.mjs",
     "postinstall": "node scripts/postinstall.mjs",

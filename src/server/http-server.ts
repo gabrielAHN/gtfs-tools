@@ -1,5 +1,5 @@
-import { createReadStream, existsSync } from "node:fs";
-import { stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { executeRows } from "../duckdb/runner.js";
@@ -22,18 +22,16 @@ type QueryRecord = {
 
 import { packageRoot } from "../package-root.js";
 
-const repoRoot = path.resolve(packageRoot, "..", "..");
 const packagedDashboard = path.resolve(packageRoot, "dashboard");
-const repoDashboard = path.resolve(repoRoot, "dist");
-const webDashboard = path.resolve(repoRoot, "packages", "web", "dist");
 
+// The dashboard the daemon serves: GTFS_VIZ_DASHBOARD_DIST when set (a local gtfs-viz web build or a test
+// stub), otherwise the gtfs-viz release asset pinned in dashboard.lock.json, which scripts/fetch-dashboard.mjs
+// installs into the package at build time.
 const getAppDist = () => {
   if (process.env.GTFS_VIZ_DASHBOARD_DIST) {
     return path.resolve(process.env.GTFS_VIZ_DASHBOARD_DIST);
   }
-  if (existsSync(path.join(packagedDashboard, "index.html"))) return packagedDashboard;
-  if (existsSync(path.join(webDashboard, "index.html"))) return webDashboard;
-  return repoDashboard;
+  return packagedDashboard;
 };
 
 const contentTypeFor = (filePath: string) => {
@@ -340,11 +338,29 @@ export const listen = (server: http.Server, host: string, port: number) =>
     });
   });
 
+// Refuses a dashboard without index.html, and one whose dashboard-manifest.json does not declare the CLI API
+// this server speaks (cliApi 1). The packaged dashboard must have the manifest; a GTFS_VIZ_DASHBOARD_DIST
+// build may omit it (a local web build), but a manifest it has must match.
 export const validateAppDist = async () => {
   const appDist = getAppDist();
+  const fromEnvironment = Boolean(process.env.GTFS_VIZ_DASHBOARD_DIST);
+  const fix = fromEnvironment
+    ? "Point GTFS_VIZ_DASHBOARD_DIST at a gtfs-viz dashboard build."
+    : "Reinstall @gabrielahn/gtfs-tools, or run npm run dashboard in a gtfs-tools checkout.";
+  const index = await stat(path.join(appDist, "index.html")).catch(() => null);
+  if (!index?.isFile()) {
+    throw new Error(`Dashboard build not found at ${appDist}. ${fix}`);
+  }
+  let manifest: { cliApi?: unknown } | null;
   try {
-    await stat(path.join(appDist, "index.html"));
-  } catch {
-    throw new Error("Dashboard build not found. Run yarn build first.");
+    manifest = JSON.parse(await readFile(path.join(appDist, "dashboard-manifest.json"), "utf8"));
+  } catch (error) {
+    if (fromEnvironment && (error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw new Error(`Dashboard at ${appDist} has a missing or malformed dashboard-manifest.json. ${fix}`);
+  }
+  if (manifest?.cliApi !== 1) {
+    throw new Error(
+      `Dashboard at ${appDist} declares cliApi ${JSON.stringify(manifest?.cliApi)}; this CLI serves CLI API 1. ${fix}`,
+    );
   }
 };
