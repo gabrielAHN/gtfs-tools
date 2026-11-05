@@ -16,8 +16,11 @@ gtfs-viz --version
 - It depends on exactly the same version of `@gabrielahn/gtfs-tools` and has no code of its own beyond
   the `gtfs-viz` command, which runs the gtfs-tools CLI with `gtfs-viz` in its help and hints.
 - `gtfs-viz` and `gtfs-tools` share the imported dataset (`~/.gtfs-viz-cli`), the dashboard daemon and
-  the environment variables, so either command works on the same data. Both packages can be installed
-  globally together.
+  the environment variables, so either command works on the same data.
+- Install one of the two packages. To have both commands, install them in separate commands
+  (`npm install -g @gabrielahn/gtfs-tools`, then `npm install -g @gabrielahn/gtfs-viz-cli`). Installed
+  in one `npm install -g` command, npm shares one copy of `@gabrielahn/gtfs-tools` between them, and a
+  later `npm uninstall -g @gabrielahn/gtfs-tools` breaks `gtfs-viz`.
 - New installs should use `npm install -g @gabrielahn/gtfs-tools`. The agent skill is now `gtfs-tools`
   (`gtfs-viz install-skill <provider>` installs it).
 - Upgrading from 1.5.x with its own `gtfs-viz update --provider <provider>` works: this package ships a

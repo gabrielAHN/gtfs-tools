@@ -39,10 +39,21 @@ npm install -g @gabrielahn/gtfs-viz-cli    # command: gtfs-viz
 ```
 
 `@gabrielahn/gtfs-viz-cli` depends on exactly the same version of `@gabrielahn/gtfs-tools`; its `gtfs-viz`
-command prints `gtfs-viz` in help and hints and otherwise behaves identically. Each package owns one
-command, so both can be installed together. Both commands share the imported dataset
-(`~/.gtfs-viz-cli`), the dashboard daemon and the environment variables (`DUCKDB_BIN`,
+command prints `gtfs-viz` in help and hints and otherwise behaves identically. Both commands share the
+imported dataset (`~/.gtfs-viz-cli`), the dashboard daemon and the environment variables (`DUCKDB_BIN`,
 `GTFS_EXTENSION_REPOSITORY`, `GTFS_VIZ_*`), so a dataset imported with one works with the other.
+
+Install one of the two packages. Each owns one command, so if you want both commands, install them in
+separate commands:
+
+```bash
+npm install -g @gabrielahn/gtfs-tools
+npm install -g @gabrielahn/gtfs-viz-cli
+```
+
+Not as `npm install -g @gabrielahn/gtfs-tools @gabrielahn/gtfs-viz-cli`: in one command npm shares a
+single copy of `@gabrielahn/gtfs-tools` between them, and a later `npm uninstall -g @gabrielahn/gtfs-tools`
+then breaks `gtfs-viz`.
 
 Requires Node.js 18 or newer and the [DuckDB CLI](https://duckdb.org/docs/installation) v2.0.0
 (`duckdb` on PATH or `DUCKDB_BIN`); see [Extension prerequisite](#extension-prerequisite).
