@@ -1,4 +1,4 @@
-// The daemon serves the packaged dashboard (installed from the pinned gtfs-viz release asset) or
+// The daemon serves the packaged dashboard (built from the gtfs-viz submodule by npm run dashboard) or
 // GTFS_VIZ_DASHBOARD_DIST, and validateAppDist refuses a missing or incompatible one before it starts.
 import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -40,7 +40,7 @@ test("the packaged dashboard needs index.html and a cliApi 1 manifest", async (t
   withDashboardDist(t, undefined)
   const { root, server } = await serverIn(t)
   const packaged = path.join(root, "dashboard")
-  await assert.rejects(server.validateAppDist(), /Dashboard build not found at .*dashboard\. Reinstall @gabrielahn\/gtfs-tools/)
+  await assert.rejects(server.validateAppDist(), /Dashboard build not found at .*dashboard\. Reinstall @gabrielahn\/gtfs-tools\. In a gtfs-tools checkout, run `git submodule update --init`, then `npm run dashboard`\./)
   await dashboard(packaged)
   await assert.rejects(server.validateAppDist(), /missing or malformed dashboard-manifest\.json/)
   await dashboard(packaged, { manifest: "{not json" })

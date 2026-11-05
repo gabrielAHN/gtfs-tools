@@ -25,8 +25,8 @@ import { packageRoot } from "../package-root.js";
 const packagedDashboard = path.resolve(packageRoot, "dashboard");
 
 // The dashboard the daemon serves: GTFS_VIZ_DASHBOARD_DIST when set (a local gtfs-viz web build or a test
-// stub), otherwise the gtfs-viz release asset pinned in dashboard.lock.json, which scripts/fetch-dashboard.mjs
-// installs into the package at build time.
+// stub), otherwise the package's dashboard/, which scripts/build-dashboard.mjs (`npm run dashboard`) builds
+// from the gtfs-viz git submodule and installs at build time.
 const getAppDist = () => {
   if (process.env.GTFS_VIZ_DASHBOARD_DIST) {
     return path.resolve(process.env.GTFS_VIZ_DASHBOARD_DIST);
@@ -346,7 +346,7 @@ export const validateAppDist = async () => {
   const fromEnvironment = Boolean(process.env.GTFS_VIZ_DASHBOARD_DIST);
   const fix = fromEnvironment
     ? "Point GTFS_VIZ_DASHBOARD_DIST at a gtfs-viz dashboard build."
-    : "Reinstall @gabrielahn/gtfs-tools, or run npm run dashboard in a gtfs-tools checkout.";
+    : "Reinstall @gabrielahn/gtfs-tools. In a gtfs-tools checkout, run `git submodule update --init`, then `npm run dashboard`.";
   const index = await stat(path.join(appDist, "index.html")).catch(() => null);
   if (!index?.isFile()) {
     throw new Error(`Dashboard build not found at ${appDist}. ${fix}`);
