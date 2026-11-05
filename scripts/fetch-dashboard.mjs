@@ -11,11 +11,16 @@
  * temporary sibling directory that is renamed into place. An existing dashboard is removed only after that.
  * Any failure exits non-zero and leaves the existing dashboard untouched.
  *
+ * --out only ever replaces a dashboard: a missing directory (its parents are created), an empty one, or one
+ * holding a dashboard-manifest.json named "gtfs-viz-dashboard". Anything else is refused untouched, and so is
+ * the current directory, the package root, $HOME, / or a parent of one of them, even when empty.
+ *
  * --allow-unpinned skips only the checksum comparison, with a warning. It is for development; publishing and
  * CI never use it.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
@@ -241,13 +246,61 @@ const checkManifest = (files) => {
   return manifest;
 };
 
+// A directory and every directory above it, both as given and with symlinks resolved.
+const withParents = async (dir) => {
+  const found = [];
+  for (const start of new Set([path.resolve(dir), await realpath(dir).catch(() => path.resolve(dir))])) {
+    for (let current = start; ; current = path.dirname(current)) {
+      found.push(current);
+      if (path.dirname(current) === current) break;
+    }
+  }
+  return found;
+};
+
+// Directories --out may never name, even when empty: the current directory, the package root, $HOME and /,
+// and every parent of them.
+const protectedDirectories = async () =>
+  new Set((await Promise.all([process.cwd(), packageRoot, os.homedir()].map(withParents))).flat());
+
+const isDashboardDirectory = async (dir) => {
+  const manifestFile = path.join(dir, MANIFEST);
+  const info = await lstat(manifestFile).catch(() => null);
+  if (!info?.isFile()) return false;
+  try {
+    return JSON.parse(await readFile(manifestFile, "utf8"))?.name === "gtfs-viz-dashboard";
+  } catch {
+    return false;
+  }
+};
+
+// Decides whether `outDir` may be replaced; returns whether it exists. Refuses (touching nothing) unless it is
+// missing, an empty directory, or a dashboard directory, and never accepts a protected directory.
+const checkOutDir = async (outDir) => {
+  const refuse = (why) => fail(`refusing to replace ${outDir}: ${why}. Pick an --out that is missing, empty or an installed dashboard.`);
+  const guarded = await protectedDirectories();
+  const real = await realpath(outDir).catch(() => outDir);
+  if (guarded.has(outDir) || guarded.has(real))
+    refuse("it is the current directory, the package root, the home directory or a parent of one, not a dashboard directory");
+  let info;
+  try {
+    info = await lstat(outDir);
+  } catch (error) {
+    if (error.code === "ENOENT") return false;
+    fail(`cannot inspect ${outDir}: ${error.message}`);
+  }
+  if (info.isSymbolicLink()) refuse("it is a symbolic link, not a dashboard directory");
+  if (!info.isDirectory()) refuse("it is not a directory, so not a dashboard directory");
+  if ((await readdir(outDir)).length === 0 || (await isDashboardDirectory(outDir))) return true;
+  return refuse(`it is not a dashboard directory (it is not empty and has no ${MANIFEST} naming "gtfs-viz-dashboard")`);
+};
+
 // Writes the validated entries to a temporary sibling of `outDir`, then swaps it into place.
 const install = async ({ directories, files }, outDir) => {
   const parent = path.dirname(outDir);
   const base = path.basename(outDir);
-  if (!base || outDir === path.parse(outDir).root) fail(`refusing to replace ${outDir}`);
-  const existing = await stat(outDir).catch(() => null);
-  if (existing && !existing.isDirectory()) fail(`${outDir} exists and is not a directory`);
+  if (!base || outDir === path.parse(outDir).root) fail(`refusing to replace ${outDir}: not a dashboard directory`);
+  const existing = await checkOutDir(outDir);
   await mkdir(parent, { recursive: true });
   const tag = `${process.pid}-${randomBytes(6).toString("hex")}`;
   const staging = path.join(parent, `.${base}.new-${tag}`);
@@ -289,6 +342,8 @@ const main = async () => {
   }
   const lockFile = path.resolve(options.lock ?? path.join(packageRoot, "dashboard.lock.json"));
   const outDir = path.resolve(options.out ?? path.join(packageRoot, "dashboard"));
+  // Refuse a non-dashboard --out before downloading anything; install() checks again before the swap.
+  await checkOutDir(outDir);
   const lock = await readLock(lockFile);
   const pinned = typeof lock.sha256 === "string" && /^[0-9a-f]{64}$/.test(lock.sha256) ? lock.sha256 : undefined;
   if (!pinned && !options.allowUnpinned) fail(`${lockFile} has no sha256 (64 lowercase hex characters)`);

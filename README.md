@@ -281,9 +281,16 @@ used from gtfs-viz's `@gtfs-viz` duckdb-client package (the extension client, th
 named queries) lives in `src/gtfs/`.
 
 `scripts/fetch-dashboard.mjs` takes `--from <file|url>` (default: the lock's `url`), `--lock <file>`
-(default `dashboard.lock.json`), `--out <dir>` (default `dashboard/`) and `--allow-unpinned`. The last
-skips only the checksum, with a warning, and is for development only, for example with gtfs-viz's
-moving `dashboard-latest` pre-release:
+(default `dashboard.lock.json`), `--out <dir>` (default `dashboard/`) and `--allow-unpinned`.
+
+`--out` only ever replaces a dashboard. The directory must be missing (its parent directories are
+created), empty, or an installed dashboard: one holding a `dashboard-manifest.json` whose `name` is
+`gtfs-viz-dashboard`. Anything else is refused with "refusing to replace … not a dashboard directory"
+and left untouched, before anything is downloaded. So are a symbolic link, the current directory, the
+package root, `$HOME`, `/` and any parent of them, even when empty.
+
+`--allow-unpinned` skips only the checksum, with a warning, and is for development only, for example
+with gtfs-viz's moving `dashboard-latest` pre-release:
 
 ```bash
 node scripts/fetch-dashboard.mjs --allow-unpinned \

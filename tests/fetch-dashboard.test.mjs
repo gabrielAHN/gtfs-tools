@@ -1,9 +1,10 @@
 // scripts/fetch-dashboard.mjs beyond the split acceptance cases: release downloads that redirect, failed
-// downloads, and archives that are not plain ustar. Every failure leaves the existing dashboard untouched.
+// downloads, archives that are not plain ustar, and --out directories it must never replace. Every failure
+// leaves the existing dashboard untouched.
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises"
 import http from "node:http"
 import os from "node:os"
 import path from "node:path"
@@ -42,10 +43,12 @@ const goodEntries = () => [
   ["dashboard/index.html", file("<!doctype html><title>dashboard</title>")],
 ]
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex")
+const previousManifest = JSON.stringify({ name: "gtfs-viz-dashboard", version: "1.5.9", commit: "1".repeat(40), cliApi: 1 })
+const previousDashboard = ["dashboard-manifest.json", "previous.txt"]
 
-const run = (args) =>
+const run = (args, { cwd, env, scriptPath = script } = {}) =>
   new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [script, ...args], { stdio: ["ignore", "pipe", "pipe"] })
+    const child = spawn(process.execPath, [scriptPath, ...args], { cwd, env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] })
     let stdout = ""
     let stderr = ""
     child.stdout.on("data", (chunk) => (stdout += chunk))
@@ -62,6 +65,8 @@ const fetchFrom = async (t, bytes, source) => {
   await writeFile(lock, JSON.stringify({ repository: "gabrielAHN/gtfs-viz", tag: "v1.6.0", asset: "gtfs-viz-dashboard.tar.gz", url: "https://example.invalid/unused", sha256: sha256(bytes) }))
   const out = path.join(dir, "dashboard")
   await mkdir(out)
+  // An older installed dashboard: the only kind of non-empty directory fetch-dashboard may replace.
+  await writeFile(path.join(out, "dashboard-manifest.json"), previousManifest)
   await writeFile(path.join(out, "previous.txt"), "previous dashboard")
   const from = source ?? path.join(dir, "gtfs-viz-dashboard.tar.gz")
   if (!source) await writeFile(from, bytes)
@@ -97,7 +102,7 @@ test("a failed download exits non-zero and keeps the existing dashboard", async 
   const { dir, out, result } = await fetchFrom(t, Buffer.from("unused"), `${base}/missing.tar.gz`)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /HTTP 404/)
-  assert.deepEqual(await readdir(out), ["previous.txt"])
+  assert.deepEqual((await readdir(out)).sort(), previousDashboard)
   assert.deepEqual((await readdir(dir)).filter((name) => name.startsWith(".")), [], "no staging directory is left behind")
 })
 
@@ -105,7 +110,7 @@ const refuses = async (t, bytes, pattern) => {
   const { dir, out, result } = await fetchFrom(t, bytes)
   assert.notEqual(result.status, 0, result.stdout)
   assert.match(result.stderr, pattern)
-  assert.deepEqual(await readdir(out), ["previous.txt"])
+  assert.deepEqual((await readdir(out)).sort(), previousDashboard)
   assert.deepEqual((await readdir(dir)).sort(), ["dashboard", "dashboard.lock.json", "gtfs-viz-dashboard.tar.gz"])
 }
 
@@ -146,4 +151,98 @@ test("the lock must pin a sha256 unless --allow-unpinned is given", async (t) =>
   const unknown = await run(["--from", archive, "--lock", lock, "--out", out, "--pinned"])
   assert.notEqual(unknown.status, 0)
   assert.match(unknown.stderr, /unknown argument "--pinned"/)
+})
+
+// A scratch "package" holding a copy of the script (so the package root is scratch, never this checkout),
+// a pinned archive and its lock.
+const sandbox = async (t) => {
+  const dir = await realpath(await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-fetch-out-")))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const pkg = path.join(dir, "pkg")
+  await mkdir(path.join(pkg, "scripts"), { recursive: true })
+  const scriptCopy = path.join(pkg, "scripts", "fetch-dashboard.mjs")
+  await copyFile(script, scriptCopy)
+  const bytes = gzipSync(tarOf(goodEntries()))
+  const archive = path.join(dir, "gtfs-viz-dashboard.tar.gz")
+  await writeFile(archive, bytes)
+  const lock = path.join(dir, "dashboard.lock.json")
+  await writeFile(lock, JSON.stringify({ url: "https://example.invalid/unused", sha256: sha256(bytes) }))
+  const home = path.join(dir, "home")
+  await mkdir(home)
+  const fetchInto = (out, { cwd = dir, from = archive } = {}) =>
+    run(["--from", from, "--lock", lock, "--out", out], { cwd, env: { HOME: home }, scriptPath: scriptCopy })
+  return { dir, pkg, home, fetchInto }
+}
+const listing = async (dir) => (await readdir(dir)).sort()
+
+test("--out never names the current directory, the package root, $HOME, / or a parent of one, even when empty", async (t) => {
+  const { dir, pkg, home, fetchInto } = await sandbox(t)
+  const emptyCwd = path.join(dir, "cwd")
+  await mkdir(emptyCwd)
+  // A parent of the current directory that even holds a dashboard manifest.
+  const parent = path.join(dir, "parent")
+  const child = path.join(parent, "child")
+  await mkdir(child, { recursive: true })
+  await writeFile(path.join(parent, "dashboard-manifest.json"), previousManifest)
+  // The package root, with a dashboard manifest too.
+  await writeFile(path.join(pkg, "dashboard-manifest.json"), previousManifest)
+  const cases = [
+    [".", emptyCwd, "the current directory, empty"],
+    [emptyCwd, emptyCwd, "the current directory by absolute path"],
+    ["..", child, "a parent of the current directory"],
+    [pkg, dir, "the package root"],
+    [home, dir, "$HOME, empty"],
+    ["/", dir, "/"],
+  ]
+  const before = { cwd: await listing(emptyCwd), parent: await listing(parent), pkg: await listing(pkg), home: await listing(home), dir: await listing(dir) }
+  for (const [out, cwd, label] of cases) {
+    const result = await fetchInto(out, { cwd })
+    assert.notEqual(result.status, 0, `${label} must be refused`)
+    assert.match(result.stderr, /refusing to replace .*not a dashboard directory/, label)
+    assert.doesNotMatch(result.stderr, /\n\s+at /, `${label}: a clear error, not a stack trace`)
+  }
+  assert.deepEqual(
+    { cwd: await listing(emptyCwd), parent: await listing(parent), pkg: await listing(pkg), home: await listing(home), dir: await listing(dir) },
+    before,
+    "nothing was touched",
+  )
+})
+
+test("--out refuses a symbolic link and a non-dashboard directory before downloading anything", async (t) => {
+  const { dir, fetchInto } = await sandbox(t)
+  const requests = []
+  const base = await serve(t, (req, res) => {
+    requests.push(req.url)
+    res.writeHead(404).end()
+  })
+  const target = path.join(dir, "target")
+  await mkdir(target)
+  await writeFile(path.join(target, "dashboard-manifest.json"), previousManifest)
+  const link = path.join(dir, "link")
+  await symlink(target, link)
+  const linked = await fetchInto(link, { from: `${base}/gtfs-viz-dashboard.tar.gz` })
+  assert.notEqual(linked.status, 0)
+  assert.match(linked.stderr, /refusing to replace .*symbolic link, not a dashboard directory/)
+  assert.deepEqual(await listing(target), ["dashboard-manifest.json"])
+  const project = path.join(dir, "project")
+  await mkdir(project)
+  await writeFile(path.join(project, "notes.txt"), "keep")
+  const refused = await fetchInto(project, { from: `${base}/gtfs-viz-dashboard.tar.gz` })
+  assert.notEqual(refused.status, 0)
+  assert.match(refused.stderr, /refusing to replace .*not a dashboard directory/)
+  assert.deepEqual(await listing(project), ["notes.txt"])
+  assert.deepEqual(requests, [], "the refusal comes before any download")
+})
+
+test("--out creates missing parent directories and replaces an older dashboard", async (t) => {
+  const { dir, fetchInto } = await sandbox(t)
+  const deep = path.join(dir, "a", "b", "c", "dashboard")
+  const created = await fetchInto(deep)
+  assert.equal(created.status, 0, created.stderr)
+  assert.deepEqual(await listing(deep), ["dashboard-manifest.json", "index.html"])
+  await writeFile(path.join(deep, "stale.txt"), "from the older dashboard")
+  const replaced = await fetchInto(deep)
+  assert.equal(replaced.status, 0, replaced.stderr)
+  assert.deepEqual(await listing(deep), ["dashboard-manifest.json", "index.html"])
+  assert.deepEqual((await listing(path.dirname(deep))).filter((name) => name.startsWith(".")), [], "no staging or old copy is left")
 })
