@@ -79,10 +79,13 @@ const fetchDashboard = async (bytes, { pinned, extraArgs = [] } = {}) => {
   )
   const out = path.join(dir, "dashboard")
   await mkdir(out)
+  // An older installed dashboard: the only kind of existing directory fetch-dashboard may replace.
+  await writeFile(path.join(out, "dashboard-manifest.json"), JSON.stringify({ name: "gtfs-viz-dashboard", version: "1.5.9", commit: "1".repeat(40), cliApi: 1 }))
   await writeFile(path.join(out, "previous.txt"), "previous dashboard")
   const result = run([path.join(root, "scripts", "fetch-dashboard.mjs"), "--from", tarball, "--lock", lock, "--out", out, ...extraArgs])
   return { dir, out, result }
 }
+const previousDashboard = ["dashboard-manifest.json", "previous.txt"]
 const outsideFiles = (dir) => readdirSync(dir).filter((name) => !["dashboard", "dashboard.lock.json", "gtfs-viz-dashboard.tar.gz"].includes(name) && !name.startsWith("."))
 
 test("no source, script or test imports @gtfs-viz packages", () => {
@@ -143,7 +146,8 @@ const rejected = async (bytes, options, pattern) => {
   const { dir, out, result } = await fetchDashboard(bytes, options)
   assert.notEqual(result.status, 0, "must fail")
   assert.match(result.stderr + result.stdout, pattern)
-  assert.deepEqual(readdirSync(out), ["previous.txt"], "the existing dashboard is untouched")
+  assert.deepEqual(readdirSync(out).sort(), previousDashboard, "the existing dashboard is untouched")
+  assert.equal(readFileSync(path.join(out, "previous.txt"), "utf8"), "previous dashboard")
   assert.deepEqual(outsideFiles(dir), [], "nothing is written outside the output directory")
   return result
 }
@@ -171,6 +175,48 @@ test("fetch-dashboard refuses unsafe or incompatible archives", async () => {
   await rejected(archive(noIndex), {}, /index\.html/)
   const noManifest = goodEntries().filter(([name]) => !name.endsWith("dashboard-manifest.json"))
   await rejected(archive(noManifest), {}, /manifest/i)
+})
+
+test("fetch-dashboard only ever replaces an empty directory or an older dashboard", async () => {
+  const bytes = archive(goodEntries())
+  const dir = await scratch()
+  const tarball = path.join(dir, "gtfs-viz-dashboard.tar.gz")
+  await writeFile(tarball, bytes)
+  const lock = path.join(dir, "dashboard.lock.json")
+  await writeFile(lock, JSON.stringify({ repository: "gabrielAHN/gtfs-viz", tag: "v1.6.0", asset: "gtfs-viz-dashboard.tar.gz",
+    url: "https://github.com/gabrielAHN/gtfs-viz/releases/download/v1.6.0/gtfs-viz-dashboard.tar.gz", sha256: sha256(bytes) }))
+  const fetchInto = (out, cwd = dir) =>
+    run([path.join(root, "scripts", "fetch-dashboard.mjs"), "--from", tarball, "--lock", lock, "--out", out], { cwd })
+
+  // A project directory (no dashboard manifest) is refused and left exactly as it was, including `--out .`.
+  const project = path.join(dir, "project")
+  await mkdir(path.join(project, "src"), { recursive: true })
+  await mkdir(path.join(project, ".git"))
+  await writeFile(path.join(project, "src", "main.ts"), "code")
+  await writeFile(path.join(project, "package.json"), "{}")
+  for (const [out, cwd] of [[project, dir], [".", project], [path.join(project, "src"), dir]]) {
+    const result = fetchInto(out, cwd)
+    assert.notEqual(result.status, 0, `--out ${out} must be refused`)
+    assert.match(result.stderr + result.stdout, /refus|not a dashboard|non-dashboard/i)
+    assert.deepEqual(readdirSync(project).sort(), [".git", "package.json", "src"])
+    assert.equal(readFileSync(path.join(project, "src", "main.ts"), "utf8"), "code")
+  }
+  // A manifest that is not a gtfs-viz dashboard's does not count.
+  const other = path.join(dir, "other")
+  await mkdir(other)
+  await writeFile(path.join(other, "dashboard-manifest.json"), JSON.stringify({ name: "something-else" }))
+  await writeFile(path.join(other, "keep.txt"), "keep")
+  assert.notEqual(fetchInto(other).status, 0)
+  assert.equal(readFileSync(path.join(other, "keep.txt"), "utf8"), "keep")
+
+  // An empty directory and a missing directory are fine.
+  const empty = path.join(dir, "empty")
+  await mkdir(empty)
+  assert.equal(fetchInto(empty).status, 0)
+  assert.ok(existsSync(path.join(empty, "index.html")))
+  const fresh = path.join(dir, "fresh", "dashboard")
+  assert.equal(fetchInto(fresh).status, 0)
+  assert.ok(existsSync(path.join(fresh, "index.html")))
 })
 
 test("--allow-unpinned skips only the checksum, with a warning", async () => {
