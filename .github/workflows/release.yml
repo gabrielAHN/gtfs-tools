@@ -1,15 +1,15 @@
 name: Release & Publish
 
-# A merged PR that bumps the version in package.json (or compat/gtfs-viz-cli/package.json) releases it:
+# A merged PR that bumps the version in package.json releases it:
 #
 # 1. build: with read-only contents and no npm token, check, build (the CLI bundle plus the dashboard built from
-#    the gtfs-viz submodule at its pinned commit) and npm pack @gabrielahn/gtfs-tools and the
-#    @gabrielahn/gtfs-viz-cli compatibility package. The two .tgz files are handed over as an artifact.
+#    the gtfs-viz submodule at its pinned commit) and npm pack @gabrielahn/gtfs-tools. The .tgz is handed over
+#    as an artifact.
 # 2. publish: only after build succeeded, tag v<version> on the built commit, create the GitHub release, then
-#    npm publish the gtfs-tools tarball and then the compat tarball. It installs nothing and runs no package
-#    scripts. A package whose version is already on npm is skipped.
+#    npm publish the tarball. It installs nothing and runs no package scripts. A version already on npm is
+#    skipped.
 #
-# A failed build therefore never leaves a GitHub release without its npm packages.
+# A failed build therefore never leaves a GitHub release without its npm package.
 
 on:
   pull_request:
@@ -44,7 +44,7 @@ jobs:
             exit 0
           fi
           PATCHES=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" \
-            --jq '.[] | select(.filename == "package.json" or .filename == "compat/gtfs-viz-cli/package.json") | .patch')
+            --jq '.[] | select(.filename == "package.json") | .patch')
           if grep -Eq '^\+[[:space:]]*"version":' <<< "$PATCHES"; then
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "#$PR bumps the version — releasing"
@@ -84,22 +84,6 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-      # Both packages publish in lockstep. @gabrielahn/gtfs-viz-cli has a stray 2.0.0 on npm, so 2.0.0 is never
-      # a lockstep version.
-      - name: Check the compatibility package is pinned to the same version
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          node -e '
-            const version = process.env.VERSION;
-            const compat = require("./compat/gtfs-viz-cli/package.json");
-            const problems = [];
-            if (version === "2.0.0") problems.push("2.0.0 is taken by a stray @gabrielahn/gtfs-viz-cli release; pick another version");
-            if (compat.version !== version) problems.push(`compat/gtfs-viz-cli is ${compat.version}, not ${version}`);
-            if (compat.dependencies?.["@gabrielahn/gtfs-tools"] !== version) problems.push(`compat/gtfs-viz-cli depends on @gabrielahn/gtfs-tools ${compat.dependencies?.["@gabrielahn/gtfs-tools"]}, not ${version}`);
-            if (problems.length) { for (const problem of problems) console.error("::error::" + problem); process.exit(1); }
-          '
-
       - name: Install dependencies
         run: npm ci
 
@@ -124,41 +108,36 @@ jobs:
             }
           '
 
-      # npm pack runs the compatibility package's prepack, which generates its skills/gtfs-viz copy.
-      - name: Pack both packages
+      - name: Pack @gabrielahn/gtfs-tools
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/packages"
           npm pack --pack-destination "$RUNNER_TEMP/packages"
-          npm pack ./compat/gtfs-viz-cli --pack-destination "$RUNNER_TEMP/packages"
           cd "$RUNNER_TEMP/packages"
           ls -l
+          tgz="gabrielahn-gtfs-tools-$VERSION.tgz"
           missing=0
-          for entry in \
-            "gabrielahn-gtfs-tools-$VERSION.tgz:package/dist/index.js" \
-            "gabrielahn-gtfs-tools-$VERSION.tgz:package/dashboard/index.html" \
-            "gabrielahn-gtfs-tools-$VERSION.tgz:package/dashboard/dashboard-manifest.json" \
-            "gabrielahn-gtfs-tools-$VERSION.tgz:package/skills/gtfs-tools/SKILL.md" \
-            "gabrielahn-gtfs-viz-cli-$VERSION.tgz:package/bin/gtfs-viz.js" \
-            "gabrielahn-gtfs-viz-cli-$VERSION.tgz:package/skills/gtfs-viz/SKILL.md"; do
-            tgz=${entry%%:*}
-            file=${entry#*:}
+          for file in \
+            package/dist/index.js \
+            package/dashboard/index.html \
+            package/dashboard/dashboard-manifest.json \
+            package/skills/gtfs-tools/SKILL.md; do
             if ! tar -tzf "$tgz" | grep -qxF "$file"; then
               echo "::error::$tgz has no $file"
               missing=1
             fi
           done
-          if tar -tzf "gabrielahn-gtfs-tools-$VERSION.tgz" | grep -q '^package/gtfs-viz/'; then
-            echo "::error::gabrielahn-gtfs-tools-$VERSION.tgz contains the gtfs-viz submodule"
+          if tar -tzf "$tgz" | grep -q '^package/gtfs-viz/'; then
+            echo "::error::$tgz contains the gtfs-viz submodule"
             missing=1
           fi
           exit "$missing"
 
-      - name: Upload the packages
+      - name: Upload the package
         uses: actions/upload-artifact@v4
         with:
-          name: npm-packages
+          name: npm-package
           path: ${{ runner.temp }}/packages/*.tgz
           if-no-files-found: error
           retention-days: 7
@@ -172,10 +151,10 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       TAG: ${{ needs.build.outputs.tag }}
     steps:
-      - name: Download the packages
+      - name: Download the package
         uses: actions/download-artifact@v4
         with:
-          name: npm-packages
+          name: npm-package
           path: ${{ runner.temp }}/packages
 
       # An existing tag must point at the commit that was just built, so a retry from a later commit never
@@ -239,23 +218,19 @@ jobs:
             core.info(`Created release ${tag}`);
 
       # No npm token here: npm view reads public metadata.
-      - name: Check which packages are already published
+      - name: Check if the version is already published
         id: npm_check
         run: |
-          for pair in "tools:@gabrielahn/gtfs-tools" "compat:@gabrielahn/gtfs-viz-cli"; do
-            key=${pair%%:*}
-            name=${pair#*:}
-            PUBLISHED=$(npm view "${name}@${VERSION}" version 2>/dev/null || echo "")
-            if [ -n "$PUBLISHED" ]; then
-              echo "${key}_skip=true" >> "$GITHUB_OUTPUT"
-              echo "$name $VERSION already on npm — skipping publish"
-            else
-              echo "${key}_skip=false" >> "$GITHUB_OUTPUT"
-              echo "Will publish $name $VERSION"
-            fi
-          done
+          PUBLISHED=$(npm view "@gabrielahn/gtfs-tools@${VERSION}" version 2>/dev/null || echo "")
+          if [ -n "$PUBLISHED" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "@gabrielahn/gtfs-tools $VERSION already on npm — skipping publish"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Will publish @gabrielahn/gtfs-tools $VERSION"
+          fi
 
-      # Writes an .npmrc that reads the token from NODE_AUTH_TOKEN, which only the two publish steps set.
+      # Writes an .npmrc that reads the token from NODE_AUTH_TOKEN, which only the publish step sets.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -264,13 +239,7 @@ jobs:
 
       # Publishing a tarball runs no package scripts; it publishes exactly what the build job packed.
       - name: Publish @gabrielahn/gtfs-tools to npm
-        if: steps.npm_check.outputs.tools_skip != 'true'
+        if: steps.npm_check.outputs.skip != 'true'
         run: npm publish "$RUNNER_TEMP/packages/gabrielahn-gtfs-tools-$VERSION.tgz" --access public --tag latest
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish @gabrielahn/gtfs-viz-cli to npm
-        if: steps.npm_check.outputs.compat_skip != 'true'
-        run: npm publish "$RUNNER_TEMP/packages/gabrielahn-gtfs-viz-cli-$VERSION.tgz" --access public --tag latest
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

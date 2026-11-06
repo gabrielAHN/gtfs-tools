@@ -61,12 +61,10 @@ import type { FeedSource } from "./remote/source.js";
 import { safeTerminalText } from "./output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "./remote/download.js";
 
-import { commandName } from "./command-name.js";
 import { packageRoot } from "./package-root.js";
 
-// `update` reinstalls the package that provides the running command: the compatibility package for
-// gtfs-viz (it pins the same gtfs-tools version), gtfs-tools otherwise.
-const cliPackageName = commandName() === "gtfs-viz" ? "@gabrielahn/gtfs-viz-cli" : "@gabrielahn/gtfs-tools";
+// The npm package `update` installs.
+const cliPackageName = "@gabrielahn/gtfs-tools";
 
 const readCliVersion = async () => {
   const packageJson = JSON.parse(
@@ -1486,7 +1484,7 @@ const openTripDashboard = async (
 const commandTrip = async (args: Args) => {
   ensureOutputMode(args);
   const tripId = getFlagString(args.flags, "trip-id") || getFlagString(args.flags, "id") || getPositionalId(args);
-  if (!tripId) throw new Error(`Trip ID is required. Usage: ${commandName()} trip <trip-id>`);
+  if (!tripId) throw new Error(`Trip ID is required. Usage: gtfs-tools trip <trip-id>`);
   const compareRaw = getFlagString(args.flags, "compare");
 
   if (wantsDataOutput(args.flags)) {
@@ -2727,7 +2725,7 @@ const commandReroute = async (args: Args) => {
   const to = getFlagString(args.flags, "to");
   if (!tripId)
     throw new Error(
-      `Usage: ${commandName()} reroute --trip <trip_id> [--via <donor_trip_id> --from "<boundary stop>" --to "<boundary stop>"]`,
+      `Usage: gtfs-tools reroute --trip <trip_id> [--via <donor_trip_id> --from "<boundary stop>" --to "<boundary stop>"]`,
     );
   if (!donor && !from && !to) {
     if (wantsDataOutput(args.flags)) {
@@ -2795,7 +2793,7 @@ const commandSplitTrip = async (args: Args) => {
   const newHeadsign = getFlagString(args.flags, "new-headsign");
   if (!tripId || !gapFrom || !gapTo || !newTripId)
     throw new Error(
-      `Usage: ${commandName()} split_trip --trip <trip_id> --gap-from "<stop>" --gap-to "<stop>" --new-trip-id <id2> [--new-headsign "<h>"]`,
+      `Usage: gtfs-tools split_trip --trip <trip_id> --gap-from "<stop>" --gap-to "<stop>" --new-trip-id <id2> [--new-headsign "<h>"]`,
     );
   await splitTrip(ds.dbPath, tripId, gapFrom, gapTo, newTripId, newHeadsign);
   await refreshTrips(ds.dbPath);
@@ -2810,7 +2808,7 @@ const commandRunLocal = async (args: Args) => {
   const from = getFlagString(args.flags, "from");
   const to = getFlagString(args.flags, "to");
   if (!tripId || !donor || !from || !to)
-    throw new Error(`Usage: ${commandName()} run_local --trip <trip_id> --via <local_trip> --from "<stop>" --to "<stop>"`);
+    throw new Error(`Usage: gtfs-tools run_local --trip <trip_id> --via <local_trip> --from "<stop>" --to "<stop>"`);
   const changed = await rerouteViaDonor(ds.dbPath, tripId, donor, from, to);
   await refreshTrips(ds.dbPath);
   console.log(changed ? `${tripId} now runs local between "${from}" and "${to}" (via ${donor})` : `No change for ${tripId}`);
@@ -2900,7 +2898,7 @@ const commandApply = async (args: Args) => {
   let raw: string | undefined = inline;
   if (!raw && fileArg) raw = await readFile(path.resolve(fileArg), "utf-8");
   if (!raw && hasFlag(args.flags, "stdin")) raw = await readStdin();
-  if (!raw) throw new Error(`Provide a changeset: ${commandName()} apply <changeset.json> | --json '<json>' | --stdin`);
+  if (!raw) throw new Error(`Provide a changeset: gtfs-tools apply <changeset.json> | --json '<json>' | --stdin`);
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -3131,7 +3129,7 @@ const commandSkillPath = () => {
 };
 
 const commandVersion = async () => {
-  console.log(`${commandName()} ${await readCliVersion()}`);
+  console.log(`gtfs-tools ${await readCliVersion()}`);
 };
 
 type SkillProvider = "anthropic" | "openai" | "google" | "generic";
@@ -3234,7 +3232,7 @@ const commandInstallSkill = async (args: Args) => {
   let skillMd = await readFile(skillMdPath, "utf-8");
 
   const allowedToolsByProvider: Record<SkillProvider, string | null> = {
-    anthropic: "Bash(gtfs-tools:*) Bash(gtfs-viz:*) Bash(duckdb:*) Read",
+    anthropic: "Bash(gtfs-tools:*) Bash(duckdb:*) Read",
     openai: null,
     google: null,
     generic: null,

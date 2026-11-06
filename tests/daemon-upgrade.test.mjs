@@ -40,7 +40,6 @@ const setup = async (t) => {
   await mkdir(dist)
   await writeFile(path.join(dist, "index.html"), "<!doctype html><title>stub dashboard</title>")
   const env = { ...process.env, HOME: home, GTFS_VIZ_DASHBOARD_DIST: dist, AI_AGENT: "" }
-  delete env.GTFS_TOOLS_COMMAND_NAME
   const daemonFile = path.join(home, ".gtfs-viz-cli", "daemon.json")
   const readDaemon = async () => JSON.parse(await readFile(daemonFile, "utf8"))
   // Asynchronous, so this process keeps reaping the stand-in daemons it started while the CLI waits for them
@@ -123,7 +122,7 @@ test("a 1.5.x daemon (daemon.json without cliVersion and packageRoot) is stopped
 test("a daemon that ignores SIGTERM is killed; a current daemon is reused; another version's is replaced", async (t) => {
   const { readDaemon, startOld, writeOldDaemonJson, urlOnly } = await setup(t)
   const old = await startOld({ ignoreTerm: true })
-  await writeOldDaemonJson(old.child.pid, old.port, { cliVersion: "1.5.3", packageRoot: "/old/prefix/lib/node_modules/@gabrielahn/gtfs-viz-cli" })
+  await writeOldDaemonJson(old.child.pid, old.port, { cliVersion: "1.5.3", packageRoot: "/old/prefix/lib/node_modules/old-cli" })
   const first = await urlOnly()
   assert.deepEqual(await old.exited, { code: null, signal: "SIGKILL" })
   assert.match(first.result.stderr, /Stopped the dashboard daemon from version 1\.5\.3/)
@@ -168,8 +167,8 @@ test("a live pid in daemon.json that is not a daemon on the recorded port is nev
 })
 
 test("the same version from another install is reused while that install still holds it", async (t) => {
-  // Both packages installed separately (the documented layout) give two gtfs-tools copies of one version.
-  // Switching between `gtfs-tools` and `gtfs-viz` must not restart the daemon each time.
+  // Two installs of one version (for example a global and a project prefix) must share one daemon:
+  // switching between them must not restart it each time.
   const { readDaemon, urlOnly, writeOldDaemonJson } = await setup(t)
   const first = await urlOnly()
   const record = await readDaemon()

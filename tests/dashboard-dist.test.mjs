@@ -34,7 +34,8 @@ const withDashboardDist = (t, value) => {
   })
 }
 
-const manifest = (cliApi = 1) => ({ name: "gtfs-viz-dashboard", version: "1.6.0", commit: "0".repeat(40), cliApi })
+// gtfs-viz's manifest has no version; dashboards built before that also carry one.
+const manifest = (cliApi = 1, extra = {}) => ({ name: "gtfs-viz-dashboard", commit: "0".repeat(40), cliApi, ...extra })
 
 test("the packaged dashboard needs index.html and a cliApi 1 manifest", async (t) => {
   withDashboardDist(t, undefined)
@@ -48,6 +49,8 @@ test("the packaged dashboard needs index.html and a cliApi 1 manifest", async (t
   await dashboard(packaged, { manifest: manifest(2) })
   await assert.rejects(server.validateAppDist(), /declares cliApi 2; this CLI serves CLI API 1/)
   await dashboard(packaged, { manifest: manifest() })
+  await server.validateAppDist()
+  await dashboard(packaged, { manifest: manifest(1, { version: "1.6.0" }) })
   await server.validateAppDist()
 })
 

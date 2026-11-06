@@ -1,18 +1,16 @@
 ---
 name: gtfs-tools
-description: Import GTFS transit feeds, query station/stop/pathway/route/trip/calendar/shape data, edit connections, nodes, routes, trips, and stop times, compare trip service patterns and schedules, export changes to GTFS CSV, and open a local browser dashboard with the gtfs-tools CLI (also installed as gtfs-viz). Use when working with GTFS data, transit stations, pathways, routes, trips, schedules, or accessibility audits.
+description: Import GTFS transit feeds, query station/stop/pathway/route/trip/calendar/shape data, edit connections, nodes, routes, trips, and stop times, compare trip service patterns and schedules, export changes to GTFS CSV, and open a local browser dashboard with the gtfs-tools CLI. Use when working with GTFS data, transit stations, pathways, routes, trips, schedules, or accessibility audits.
 license: MIT
 metadata:
   author: gabrielahn
-  version: "1.5.4"
+  version: "1.5.5"
   repository: gabrielAHN/gtfs-tools
 ---
 
 # GTFS Tools CLI
 
 Import GTFS feeds, query transit data, browse routes/trips/calendars/shapes, compare trip schedules, edit stations/pathways/routes/trips/stop times, export changes, or open the local dashboard.
-
-Run `gtfs-tools` (or `gtfs-viz` if you installed `@gabrielahn/gtfs-viz-cli`; same CLI, same data and dashboard). The examples below use `gtfs-tools`; with only the compatibility package installed, type `gtfs-viz` instead.
 
 ## Reference Files
 
@@ -40,8 +38,6 @@ Or install only the skill via npx:
 ```bash
 npx skills add gabrielAHN/gtfs-tools
 ```
-
-`npm install -g @gabrielahn/gtfs-viz-cli` still installs the same CLI under the `gtfs-viz` command (`gtfs-viz install-skill openai` installs this skill). Both packages can be installed together and share the imported dataset.
 
 Use `anthropic`, `openai`, `google`, or `generic` for the AI provider. Run `gtfs-tools install-skill --list-providers` to see resolved installation paths. `--provider <name>` is equivalent to the positional provider name, and `--target-dir <dir>` overrides the default. Non-interactive use still requires a provider when `--target-dir` is set. An older `gtfs-viz` skill directory next to it is left in place and reported as stale; remove it yourself once this skill is installed.
 

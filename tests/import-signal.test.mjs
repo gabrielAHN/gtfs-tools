@@ -50,7 +50,7 @@ test("Ctrl-C or SIGTERM during the DuckDB import of a downloaded feed removes th
     format: "esm",
     target: "node18",
   })
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-viz-cli", version: "0.0.0-test", type: "module" }))
+  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "0.0.0-test", type: "module" }))
   const feed = path.join(root, "feed")
   await mkdir(feed)
   await writeFile(path.join(feed, "stops.txt"), "stop_id,stop_name,stop_lat,stop_lon\nS1,One,40.0,-73.0\n")

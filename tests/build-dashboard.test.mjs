@@ -12,7 +12,9 @@ import { BuildDashboardError, install } from "../scripts/build-dashboard.mjs"
 
 const script = fileURLToPath(new URL("../scripts/build-dashboard.mjs", import.meta.url))
 
-const manifestOf = (extra = {}) => JSON.stringify({ name: "gtfs-viz-dashboard", version: "1.6.0", commit: "a".repeat(40), cliApi: 1, ...extra })
+// gtfs-viz has no versions: its manifest is exactly {name, commit, cliApi}. Dashboards built before that also
+// carry a semver version; previousManifest has that older shape, so replacing and restoring one stays tested.
+const manifestOf = (extra = {}) => JSON.stringify({ name: "gtfs-viz-dashboard", commit: "a".repeat(40), cliApi: 1, ...extra })
 const previousManifest = JSON.stringify({ name: "gtfs-viz-dashboard", version: "1.5.9", commit: "1".repeat(40), cliApi: 1 })
 const previousDashboard = ["dashboard-manifest.json", "previous.txt"]
 
@@ -84,6 +86,21 @@ test("only regular files and directories are installed: links, hard links and FI
   await refusesBuild(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), "{not json"), /not valid JSON \(malformed manifest\)/)
   await refusesBuild(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), manifestOf({ extra: true })), /malformed dashboard manifest/)
   await refusesBuild(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), manifestOf({ commit: "HEAD" })), /not a 40-hex git commit/)
+  await refusesBuild(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), manifestOf({ version: "latest" })), /version "latest" is not a semver version/)
+  await refusesBuild(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), manifestOf({ version: 1 })), /is not a semver version/)
+})
+
+test("a manifest with or without a version is installed; messages name the short commit", async (t) => {
+  const { out, result } = await installFrom(t, () => {})
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /Installed gtfs-viz dashboard commit a{7} \(cliApi 1\) to /)
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(path.join(out, "dashboard-manifest.json"), "utf8"))).sort(), ["cliApi", "commit", "name"])
+  // The older shape, as gtfs-viz built it before it dropped versions.
+  const older = await installFrom(t, (dist) => writeFile(path.join(dist, "dashboard-manifest.json"), manifestOf({ version: "1.6.0", commit: "c".repeat(40) })))
+  assert.equal(older.result.status, 0, older.result.stderr)
+  assert.match(older.result.stdout, /Installed gtfs-viz dashboard commit c{7} \(cliApi 1\) to /)
+  assert.doesNotMatch(older.result.stdout, /1\.6\.0/)
+  assert.equal(JSON.parse(await readFile(path.join(older.out, "dashboard-manifest.json"), "utf8")).version, "1.6.0")
 })
 
 test("source maps and .DS_Store are skipped at every depth", async (t) => {
@@ -95,7 +112,7 @@ test("source maps and .DS_Store are skipped at every depth", async (t) => {
     await writeFile(path.join(dist, "index.js.map"), "{}")
   })
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Installed gtfs-viz dashboard 1\.6\.0 \(commit a{40}, cliApi 1\) .*: 4 files, skipped 3 source maps/)
+  assert.match(result.stdout, /Installed gtfs-viz dashboard commit a{7} \(cliApi 1\) .*: 4 files, skipped 3 source maps/)
   assert.deepEqual(await listing(out), ["assets", "dashboard-manifest.json", "index.html"])
   assert.deepEqual(await listing(path.join(out, "assets", "fonts")), ["font.woff2"])
 })
@@ -134,7 +151,7 @@ const sandbox = async (t) => {
 const fakeGtfsViz = async (dir, { failOn } = {}) => {
   const source = path.join(dir, "gtfs-viz")
   await mkdir(source, { recursive: true })
-  await writeFile(path.join(source, "package.json"), JSON.stringify({ name: "gtfs-viz", version: "1.6.0" }))
+  await writeFile(path.join(source, "package.json"), JSON.stringify({ name: "gtfs-viz", private: true }))
   const bin = path.join(dir, "bin")
   await mkdir(bin, { recursive: true })
   const calls = path.join(dir, "yarn-calls.log")
@@ -176,7 +193,7 @@ test("without --dist it builds the gtfs-viz submodule with yarn, AI_AGENT unset,
   // yarn's output goes to stderr; stdout is only the summary line.
   assert.match(result.stderr, /yarn output for build:dashboard/)
   assert.equal(result.stdout.trim().split("\n").length, 1, result.stdout)
-  assert.match(result.stdout, new RegExp(`commit ${"b".repeat(40)}, cliApi 1\\) to ${out} from ${path.join(source, "packages", "web", "dist")}`))
+  assert.match(result.stdout, new RegExp(`commit ${"b".repeat(7)} \\(cliApi 1\\) to ${out} from ${path.join(source, "packages", "web", "dist")}`))
   assert.deepEqual(await listing(out), ["assets", "dashboard-manifest.json", "index.html"])
   assert.deepEqual(await listing(path.join(out, "assets")), ["app.js"])
 
@@ -349,7 +366,7 @@ test("an interrupted swap is undone first: exactly one .dashboard.old-* copy wit
   const failed = await installDist(bad)
   assert.notEqual(failed.status, 0)
   assert.match(failed.stderr, /cliApi 2/)
-  assert.match(failed.stderr, new RegExp(`restored .*dashboard \\(dashboard 1\\.5\\.9\\) from ${old.replaceAll(".", "\\.")}`))
+  assert.match(failed.stderr, new RegExp(`restored .*dashboard \\(dashboard commit 1{7}\\) from ${old.replaceAll(".", "\\.")}`))
   assert.equal(await readFile(path.join(out, "index.html"), "utf8"), `<title>${old}</title>`)
   assert.deepEqual(await hidden(dir), [])
   // The next good run replaces the restored dashboard as usual.
@@ -357,6 +374,15 @@ test("an interrupted swap is undone first: exactly one .dashboard.old-* copy wit
   assert.equal(installed.status, 0, installed.stderr)
   assert.doesNotMatch(installed.stderr, /restored/)
   assert.equal(await readFile(path.join(out, "index.html"), "utf8"), "<!doctype html><title>dashboard</title>")
+})
+
+test("an interrupted swap of a version-less dashboard is restored too", async (t) => {
+  const old = ".dashboard.old-7-0123456789ab"
+  const { out, bad, installDist } = await interrupted(t, [[old, manifestOf({ commit: "d".repeat(40) })]])
+  const failed = await installDist(bad)
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, new RegExp(`restored .*dashboard \\(dashboard commit d{7}\\) from ${old.replaceAll(".", "\\.")}`))
+  assert.equal(await readFile(path.join(out, "index.html"), "utf8"), `<title>${old}</title>`)
 })
 
 test("an interrupted swap is left alone when the old copy is ambiguous or not a valid dashboard", async (t) => {

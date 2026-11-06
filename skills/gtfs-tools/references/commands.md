@@ -1,7 +1,7 @@
 # GTFS Tools CLI — Command Reference
 
 Install skill: `npx skills add gabrielAHN/gtfs-tools`
-Install CLI: `npm install -g @gabrielahn/gtfs-tools` (command `gtfs-tools`). `npm install -g @gabrielahn/gtfs-viz-cli` installs the same CLI as `gtfs-viz`; every command below works under either name.
+Install CLI: `npm install -g @gabrielahn/gtfs-tools` (command `gtfs-tools`).
 
 ## Install the Skill by AI Provider
 

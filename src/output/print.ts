@@ -1,9 +1,8 @@
 import { getFlagString } from "../args.js";
-import { commandName } from "../command-name.js";
 import { IMPORT_USAGE } from "../remote/source.js";
 
-// The command name in every help text: gtfs-tools, or gtfs-viz through the compatibility package.
-const CLI = commandName();
+// The command name in every help text.
+const CLI = "gtfs-tools";
 
 const TRUNCATE_AT = 50;
 const ESC = String.fromCharCode(27);

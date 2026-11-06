@@ -164,23 +164,28 @@ const readDist = async (dist) => {
   return { directories, files, skipped };
 };
 
-// What is wrong with a parsed dashboard manifest, or undefined when it is valid.
+// What is wrong with a parsed dashboard manifest, or undefined when it is valid. A manifest has exactly the
+// keys name, commit and cliApi. gtfs-viz no longer has versions; dashboards built before that also carry a
+// semver `version`, and that older shape is still accepted so an installed one can be restored or replaced.
 const manifestProblem = (manifest) => {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest))
     return `${MANIFEST} is not a JSON object (malformed manifest)`;
   if (manifest.cliApi !== CLI_API)
     return `the dashboard manifest declares cliApi ${JSON.stringify(manifest.cliApi)}; this CLI serves CLI API ${CLI_API} and needs cliApi: ${CLI_API}`;
   const keys = Object.keys(manifest).sort().join(",");
-  if (keys !== "cliApi,commit,name,version")
-    return `malformed dashboard manifest: expected exactly the keys name, version, commit and cliApi, got ${keys}`;
+  if (keys !== "cliApi,commit,name" && keys !== "cliApi,commit,name,version")
+    return `malformed dashboard manifest: expected exactly the keys name, commit and cliApi (older dashboards also have version), got ${keys}`;
   if (manifest.name !== "gtfs-viz-dashboard")
     return `malformed dashboard manifest: name is ${JSON.stringify(manifest.name)}, not "gtfs-viz-dashboard"`;
-  if (typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(manifest.version))
+  if ("version" in manifest && (typeof manifest.version !== "string" || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]+)?$/.test(manifest.version)))
     return `malformed dashboard manifest: version ${JSON.stringify(manifest.version)} is not a semver version`;
   if (typeof manifest.commit !== "string" || !/^[0-9a-f]{40}$/.test(manifest.commit))
     return `malformed dashboard manifest: commit ${JSON.stringify(manifest.commit)} is not a 40-hex git commit`;
   return undefined;
 };
+
+// How messages name a dashboard: its short commit.
+const dashboardLabel = (manifest) => `commit ${manifest.commit.slice(0, 7)}`;
 
 const checkManifest = (files, dist) => {
   const body = files.get(MANIFEST);
@@ -276,7 +281,7 @@ const restoreInterruptedSwap = async (outDir) => {
   if (manifestProblem(manifest)) return;
   await rename(copy, outDir);
   console.error(
-    `build-dashboard: restored ${outDir} (dashboard ${manifest.version}) from ${copies[0]}, left behind by an interrupted update`,
+    `build-dashboard: restored ${outDir} (dashboard ${dashboardLabel(manifest)}) from ${copies[0]}, left behind by an interrupted update`,
   );
 };
 
@@ -349,7 +354,7 @@ const main = async () => {
   const manifest = checkManifest(entries.files, dist);
   await install(entries, outDir);
   console.log(
-    `Installed gtfs-viz dashboard ${manifest.version} (commit ${manifest.commit}, cliApi ${manifest.cliApi}) ` +
+    `Installed gtfs-viz dashboard ${dashboardLabel(manifest)} (cliApi ${manifest.cliApi}) ` +
       `to ${outDir} from ${dist}: ${entries.files.size} files` +
       (entries.skipped.length ? `, skipped ${entries.skipped.length} source maps and .DS_Store files` : ""),
   );

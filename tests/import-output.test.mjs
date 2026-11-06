@@ -1,4 +1,4 @@
-// What `gtfs-viz import` and `gtfs-viz status` print is safe for a terminal: escape sequences are
+// What `gtfs-tools import` and `gtfs-tools status` print is safe for a terminal: escape sequences are
 // stripped and C0/C1 controls (except newline and tab) and bidi or invisible formatting characters
 // are replaced, wherever the text came from (a hostile server's reason phrase, a stored source, a
 // local path). Object keys are stored and shown with such characters percent-encoded.
@@ -40,7 +40,7 @@ const setup = async (t) => {
     format: "esm",
     target: "node18",
   })
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-viz-cli", version: "0.0.0-test", type: "module" }))
+  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "0.0.0-test", type: "module" }))
   const env = { ...process.env, HOME: home, TMPDIR: path.join(root, "t"), DUCKDB_BIN: path.join(root, "no-duckdb-needed") }
   await mkdir(env.TMPDIR)
   const cli = (...args) => {

@@ -1,4 +1,4 @@
-// `gtfs-viz import` command wiring that needs no DuckDB: temp-file cleanup when a downloaded feed
+// `gtfs-tools import` command wiring that needs no DuckDB: temp-file cleanup when a downloaded feed
 // fails to import, redacted failure headers, unchanged local-path errors, usage, help and hints.
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
@@ -37,7 +37,7 @@ const setup = async (t) => {
     format: "esm",
     target: "node18",
   })
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-viz-cli", version: "0.0.0-test", type: "module" }))
+  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "0.0.0-test", type: "module" }))
   const env = { ...process.env, HOME: home, TMPDIR: path.join(root, "t"), DUCKDB_BIN: path.join(root, "no-duckdb-needed") }
   await mkdir(env.TMPDIR)
   // A trailing object argument overrides environment variables for that run.

@@ -1,5 +1,4 @@
 import path from "node:path";
-import { commandName } from "../command-name.js";
 import { FORMATTING_CHARACTERS } from "../output/safe-text.js";
 
 // What `gtfs-tools import <source>` accepts. Remote sources download first, then import as a local zip.
@@ -15,7 +14,7 @@ export type FeedSource =
       label: string;
     };
 
-export const IMPORT_USAGE = `${commandName()} import <feed.zip|https://…|s3://…|r2://…>`;
+export const IMPORT_USAGE = "gtfs-tools import <feed.zip|https://…|s3://…|r2://…>";
 
 export const SUPPORTED_SOURCES =
   "a local .zip path, an http:// or https:// URL, an s3://… object (also s3a:// and s3n://) or an r2://… object";

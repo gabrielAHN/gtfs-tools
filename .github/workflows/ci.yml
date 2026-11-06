@@ -54,22 +54,14 @@ jobs:
       - name: Unit tests
         run: node --test tests/*.test.mjs
 
-      # The compatibility package's prepack generates skills/gtfs-viz from skills/gtfs-tools; 1.5.x's own
-      # `gtfs-viz update --provider <p>` copies it after upgrading.
       - name: Package contents
         run: |
           npm pack --dry-run --json > "$RUNNER_TEMP/pack.json"
-          npm pack --dry-run --json ./compat/gtfs-viz-cli > "$RUNNER_TEMP/compat-pack.json"
           node -e '
             const fs = require("node:fs");
-            const files = (file) => new Set(JSON.parse(fs.readFileSync(file, "utf8"))[0].files.map((f) => f.path));
-            const tools = files(process.env.RUNNER_TEMP + "/pack.json");
-            const compat = files(process.env.RUNNER_TEMP + "/compat-pack.json");
-            const missing = [
-              ...["dist/index.js", "dashboard/index.html", "dashboard/dashboard-manifest.json", "skills/gtfs-tools/SKILL.md", "scripts/postinstall.mjs", "scripts/preuninstall.mjs", "README.md"].filter((f) => !tools.has(f)),
-              ...["bin/gtfs-viz.js", "skills/gtfs-viz/SKILL.md", "README.md"].filter((f) => !compat.has(f)).map((f) => "compat/gtfs-viz-cli/" + f),
-            ];
-            if (missing.length) { console.error("Missing from the npm packages: " + missing.join(", ")); process.exit(1); }
+            const tools = new Set(JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pack.json", "utf8"))[0].files.map((f) => f.path));
+            const missing = ["dist/index.js", "dashboard/index.html", "dashboard/dashboard-manifest.json", "skills/gtfs-tools/SKILL.md", "scripts/postinstall.mjs", "scripts/preuninstall.mjs", "README.md"].filter((f) => !tools.has(f));
+            if (missing.length) { console.error("Missing from @gabrielahn/gtfs-tools: " + missing.join(", ")); process.exit(1); }
             // The gtfs-viz submodule (sources and node_modules) is never published, nor are source maps.
             const unwanted = [...tools].filter((f) => f.startsWith("gtfs-viz/") || f.endsWith(".map"));
             if (unwanted.length) { console.error("Must not be in @gabrielahn/gtfs-tools: " + unwanted.slice(0, 20).join(", ")); process.exit(1); }
