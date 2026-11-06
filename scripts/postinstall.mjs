@@ -45,7 +45,7 @@ const targets = {
       process.env.CLAUDE_HOME || path.join(os.homedir(), ".claude"),
       "skills"
     ),
-    allowedTools: "Bash(gtfs-tools:*) Bash(gtfs-viz:*) Bash(duckdb:*) Read",
+    allowedTools: "Bash(gtfs-tools:*) Bash(duckdb:*) Read",
   },
   2: {
     provider: "openai",
@@ -96,7 +96,7 @@ async function installTo(target) {
 }
 
 const installHint =
-  "Run `gtfs-tools install-skill <provider>` (or `gtfs-viz install-skill <provider>` with @gabrielahn/gtfs-viz-cli)";
+  "Run `gtfs-tools install-skill <provider>`";
 
 if (!process.stdin.isTTY) {
   console.log(`${installHint} to install the agent skill.`);
