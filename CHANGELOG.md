@@ -36,9 +36,8 @@ gtfs-viz, which keeps its own dated CHANGELOG.
   under the former npm name as a compatibility package providing the `gtfs-viz` command; 1.5.5 removes it.
   The dataset (`~/.gtfs-viz-cli`), the dashboard daemon and the `DUCKDB_BIN`, `GTFS_EXTENSION_REPOSITORY`
   and `GTFS_VIZ_*` variables are unchanged.
-- The CLI loads the separate [GTFS DuckDB](https://github.com/gabrielAHN/gtfs-duckdb) `gtfs` extension
-  instead of bundling its own SQL toolbox, and imports feeds with the extension's `gtfs_import` pragma
-  ([gtfs-viz#20](https://github.com/gabrielAHN/gtfs-viz/pull/20)).
+- The CLI loads the separate GTFS DuckDB `gtfs` extension instead of bundling its own SQL toolbox, and
+  imports feeds with the extension's `gtfs_import` pragma ([gtfs-viz#20](https://github.com/gabrielAHN/gtfs-viz/pull/20)).
 - The CLI talks to the `gtfs` DuckDB extension directly and no longer depends on any `@gtfs-viz`
   package: it carries its own copy of the extension client, the import SQL and the named queries.
 - The CLI installs the `gtfs` extension from the DuckDB community repository unless
