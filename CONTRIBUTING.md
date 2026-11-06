@@ -78,12 +78,18 @@ and devices in the build are refused; source maps and `.DS_Store` are left out.
 
 This repository publishes one npm package, `@gabrielahn/gtfs-tools`, with semver versions.
 
-- **Version bump:** bump the version in all of these together and add a `CHANGELOG.md` entry:
+- **Version bump:** bump the version in all of these together and add a `CHANGELOG.md` section:
   - `package.json` and `package-lock.json`;
   - `skills/gtfs-tools/SKILL.md` (`metadata.version`).
+- **CHANGELOG:** each version is `## [x.y.z] - YYYY-MM-DD` followed only by `### Added`, `### Changed`,
+  `### Removed`, `### Fixed` and `### Security` (in that order, as needed) with bullet items, plus a link
+  reference to its GitHub release at the bottom. Date it by the npm publish. `tests/changelog.test.mjs`
+  checks the format.
 - **Release:** merging a PR whose `package.json` change bumps the version runs
   `.github/workflows/release.yml`.
   1. A read-only job checks out the submodule, checks, builds (the dashboard from the pinned gtfs-viz
      commit) and packs the package.
   2. A second job tags `v<version>`, creates the GitHub release, and publishes the packed
-     `@gabrielahn/gtfs-tools` with `--tag latest`.
+     `@gabrielahn/gtfs-tools` with `--tag latest`. The release notes are the version's CHANGELOG section
+     plus an install line (`node .github/scripts/release-notes.mjs <version>` prints them), so a
+     version without a section never releases.
