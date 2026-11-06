@@ -97,7 +97,7 @@ gtfs-viz, which keeps its own dated CHANGELOG.
   without installing anything. The npm token is set only in the publish step, and checkouts that run
   `npm ci` keep no git credentials.
 
-## [1.5.3] - 2026-09-15
+## [1.5.3] - 2026-09-16
 
 Parallel route bands ([gtfs-viz#19](https://github.com/gabrielAHN/gtfs-viz/pull/19)).
 
