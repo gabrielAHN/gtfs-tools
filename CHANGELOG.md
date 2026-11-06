@@ -26,7 +26,7 @@ gtfs-viz, which keeps its own dated CHANGELOG.
 - A release packs and publishes only `@gabrielahn/gtfs-tools`; the version-bump check watches only
   `package.json`.
 
-## [1.5.4] - 2026-11-04
+## [1.5.4] - 2026-11-05
 
 ### Changed
 - The CLI moved from gabrielAHN/gtfs-viz (`packages/cli`) to its own repository, gabrielAHN/gtfs-tools,
@@ -109,8 +109,6 @@ Parallel route bands ([gtfs-viz#19](https://github.com/gabrielAHN/gtfs-viz/pull/
 ### Changed
 - Routine installs and updates keep imported feeds and sessions. A destructive reset needs
   `GTFS_VIZ_RESET_DATA=1`.
-- Route cleanup is deferred from import, and large feeds load with persistent storage and a controlled
-  in-memory fallback.
 
 ### Fixed
 - Spatial SQL runs in one DuckDB process, and extension installation is retried only for a confirmed
@@ -185,6 +183,7 @@ Routes and CLI overhaul ([gtfs-viz#15](https://github.com/gabrielAHN/gtfs-viz/pu
 - `routes` and `route` commands with `--service`, `--trip` and `--compare`, and positional views such as
   `route "Red Line" service --data`.
 - Context-aware help, for example `routes service -h`.
+- `--url-only` prints the dashboard link without opening a browser.
 - Skill: route, service and compare commands.
 
 ### Changed
@@ -207,9 +206,11 @@ Published from the merged monorepo on gtfs-viz `main` ([gtfs-viz#12](https://git
 - The CLI builds its import SQL from the GTFS DuckDB extension package it shares with the web app (load
   macros, then views, tables and indexes after the CSV import) instead of the whole procedures SQL file.
 - `install-skill` tailors the installed skill to the agent (Claude Code gets `allowed-tools`).
+- The skill's supporting files move to `references/`.
 
 ### Security
-- The dashboard's HTTP server no longer sends `access-control-allow-origin: *`.
+- The dashboard's HTTP server stops sending `access-control-allow-origin: *` on its data and SQL
+  endpoints (two `navigate` replies still sent it until a later release).
 - Its `sql` and `navigate` endpoints require the session ID.
 - Request bodies are capped at 1 MB.
 - `add_node` checks that `--lat` and `--lon` are numbers before they reach SQL.
@@ -234,3 +235,4 @@ First npm release, from the gtfs-viz monorepo ([gtfs-viz#12](https://github.com/
 ### Changed
 - Imported datasets expire after 7 days; the dashboard server exits after 30 minutes without activity.
 - Importing a new feed stops a running dashboard session.
+- Installing the package clears `~/.gtfs-viz-cli` (later releases keep it unless `GTFS_VIZ_RESET_DATA=1`).
