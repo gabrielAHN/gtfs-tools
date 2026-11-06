@@ -12,7 +12,6 @@ import { fileURLToPath } from "node:url"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"))
-const compatDir = path.join(root, "compat", "gtfs-viz-cli")
 
 const scratch = () => mkdtemp(path.join(os.tmpdir(), "gtfs-tools-split-"))
 const run = (args, options = {}) =>
@@ -34,7 +33,7 @@ const builtDashboard = async (dir, { manifest = {}, withManifest = true, withInd
   if (withManifest) {
     await writeFile(
       path.join(dist, "dashboard-manifest.json"),
-      JSON.stringify({ name: "gtfs-viz-dashboard", version: "1.6.0", commit: "0".repeat(40), cliApi: 1, ...manifest }),
+      JSON.stringify({ name: "gtfs-viz-dashboard", commit: "0".repeat(40), cliApi: 1, ...manifest }),
     )
   }
   return dist
@@ -73,14 +72,35 @@ test("the CLI is @gabrielahn/gtfs-tools with a single gtfs-tools command", () =>
   assert.equal(pkg.repository?.directory, undefined)
 })
 
-test("@gabrielahn/gtfs-viz-cli is a compatibility package pinned to the same version", () => {
-  const compat = JSON.parse(readFileSync(path.join(compatDir, "package.json"), "utf8"))
-  assert.equal(compat.name, "@gabrielahn/gtfs-viz-cli")
-  assert.equal(compat.version, pkg.version)
-  assert.deepEqual(compat.bin, { "gtfs-viz": "bin/gtfs-viz.js" })
-  assert.deepEqual(compat.dependencies, { "@gabrielahn/gtfs-tools": pkg.version })
-  for (const hook of ["preinstall", "install", "postinstall", "preuninstall"]) assert.equal(compat.scripts?.[hook], undefined, hook)
-  assert.ok(existsSync(path.join(compatDir, "bin", "gtfs-viz.js")))
+// The former npm name is retired (deprecated on npm): gtfs-tools is the only package and command.
+test("only @gabrielahn/gtfs-tools remains: no compatibility package, no second command name", () => {
+  assert.equal(existsSync(path.join(root, "compat")), false, "compat/ is removed")
+  const mentions = spawnSync(
+    "git",
+    ["grep", "-n", "-i", "-E", "gabrielahn/gtfs-viz-cli|GTFS_TOOLS_COMMAND_NAME", "--", ":!tests/split.acceptance.test.mjs"],
+    { cwd: root, encoding: "utf8" },
+  ).stdout
+  assert.equal(mentions, "", "no mention of the retired package or its command-name switch")
+  const release = readFileSync(path.join(root, ".github", "workflows", "release.yml"), "utf8")
+  assert.doesNotMatch(release, /gtfs-viz-cli|compat/)
+  assert.match(release, /npm publish/)
+})
+
+test("the CHANGELOG carries the CLI's whole history under gtfs-tools versions", () => {
+  const changelog = readFileSync(path.join(root, "CHANGELOG.md"), "utf8")
+  const versions = [...changelog.matchAll(/^## \[(\d+\.\d+\.\d+)\]/gm)].map((m) => m[1])
+  assert.equal(versions[0], pkg.version, "the newest entry is the package version")
+  for (const v of ["1.3.0", "1.4.0", "1.5.0", "1.5.3", "1.5.4"]) assert.ok(versions.includes(v), `CHANGELOG has ${v}`)
+  assert.equal(new Set(versions).size, versions.length, "each version once")
+})
+
+test("a dashboard manifest without a version is accepted (gtfs-viz has no versions)", async () => {
+  const dir = await scratch()
+  const dist = await builtDashboard(dir)
+  const out = path.join(dir, "dashboard")
+  const result = buildDashboard(dist, out)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(path.join(out, "dashboard-manifest.json"), "utf8"))).sort(), ["cliApi", "commit", "name"])
 })
 
 test("gtfs-viz is a git submodule; no release-asset lock or fetch script remains", () => {
@@ -166,32 +186,18 @@ test("build-dashboard only ever replaces an empty directory or an older dashboar
   assert.ok(existsSync(path.join(fresh, "index.html")))
 })
 
-test("help and version use the command name: gtfs-tools, or gtfs-viz through the compatibility package", async () => {
+test("help and version always say gtfs-tools", async () => {
   const cli = path.join(root, "dist", "index.js")
   assert.ok(existsSync(cli), "run `npm run build` first")
   const home = await scratch()
-  const env = { HOME: home }
-  const version = run([cli, "--version"], { env })
-  assert.equal(version.status, 0, version.stderr)
-  assert.equal(version.stdout.trim(), `gtfs-tools ${pkg.version}`)
-  const help = run([cli, "--help"], { env })
-  assert.equal(help.status, 0, help.stderr)
-  assert.match(help.stdout, /gtfs-tools import/)
-  assert.doesNotMatch(help.stdout, /gtfs-viz import/)
-
-  // Install the compatibility package next to a linked gtfs-tools, as npm would.
-  const prefix = await scratch()
-  const compatInstall = path.join(prefix, "node_modules", "@gabrielahn", "gtfs-viz-cli")
-  await cp(compatDir, compatInstall, { recursive: true })
-  await symlink(root, path.join(prefix, "node_modules", "@gabrielahn", "gtfs-tools"), "dir")
-  const shim = path.join(compatInstall, "bin", "gtfs-viz.js")
-  const compatVersion = run([shim, "--version"], { env })
-  assert.equal(compatVersion.status, 0, compatVersion.stderr)
-  assert.equal(compatVersion.stdout.trim(), `gtfs-viz ${pkg.version}`)
-  const compatHelp = run([shim, "--help"], { env })
-  assert.equal(compatHelp.status, 0, compatHelp.stderr)
-  assert.match(compatHelp.stdout, /gtfs-viz import/)
-  assert.doesNotMatch(compatHelp.stdout, /gtfs-tools import/)
+  for (const env of [{ HOME: home }, { HOME: home, GTFS_TOOLS_COMMAND_NAME: "gtfs-viz" }]) {
+    const version = run([cli, "--version"], { env })
+    assert.equal(version.status, 0, version.stderr)
+    assert.equal(version.stdout.trim(), `gtfs-tools ${pkg.version}`)
+    const help = run([cli, "--help"], { env })
+    assert.equal(help.status, 0, help.stderr)
+    assert.match(help.stdout, /gtfs-tools import/)
+    assert.doesNotMatch(help.stdout, /gtfs-viz (import|update|install-skill)/)
+  }
   assert.equal(existsSync(path.join(home, ".gtfs-viz-cli", "daemon.json")), false, "help never starts a daemon")
-  assert.equal((await readFile(shim, "utf8")).includes("GTFS_TOOLS_COMMAND_NAME"), true)
 })
