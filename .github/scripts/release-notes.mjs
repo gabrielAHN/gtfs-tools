@@ -6,7 +6,8 @@
 // The release workflow runs it before building, so a version without a CHANGELOG section never
 // releases. It fails on a missing or empty section and on any heading other than the changelog's
 // categories, so every release has the same shape.
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 
 export const CATEGORIES = ["Added", "Changed", "Removed", "Fixed", "Security"]
 
@@ -28,7 +29,15 @@ export const releaseNotes = (changelog, version) => {
   return `${body}\n\n### Install\n\n\`\`\`sh\nnpm install -g @gabrielahn/gtfs-tools@${version}\n\`\`\`\n`
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isMain = () => {
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1] ?? "")
+  } catch {
+    return false
+  }
+}
+
+if (isMain()) {
   const [version, file = "CHANGELOG.md"] = process.argv.slice(2)
   try {
     process.stdout.write(releaseNotes(readFileSync(file, "utf8"), version ?? ""))

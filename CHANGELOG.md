@@ -37,7 +37,7 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
   `GTFS_EXTENSION_REPOSITORY` and `GTFS_VIZ_*` variables are unchanged.
 - The CLI loads the GTFS DuckDB `gtfs` extension instead of bundling its own SQL toolbox, and imports
   feeds with the extension's `gtfs_import` pragma. It carries its own copy of the extension client, the
-  import SQL and the named queries, and has no runtime package dependency.
+  import SQL and the named queries, and no longer depends on any `@gtfs-viz` package.
 - The `gtfs` extension installs from the DuckDB community repository unless `GTFS_EXTENSION_REPOSITORY`
   names another repository. Community builds need a DuckDB v2.0.0 CLI.
 - DuckDB runs without `AI_AGENT`, so DuckDB 2.0's agent mode never changes its output.
@@ -75,6 +75,8 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 - Names that the file system would store as one file (case or Unicode NFC/NFD variants) are refused with
   a clear error, and a dashboard left in `.dashboard.old-*` by an interrupted update is restored on the
   next run.
+- The release workflow sets the npm token only in its publish step, and checkouts that run `npm ci` keep
+  no git credentials.
 
 ## [1.5.3] - 2026-09-16
 
@@ -84,8 +86,9 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 - The bundled skill documents the route-bands workflow.
 
 ### Changed
-- Routine installs and updates keep imported feeds and sessions. A destructive reset needs
-  `GTFS_VIZ_RESET_DATA=1`.
+- Installing with `GTFS_VIZ_RESET_DATA=1` resets imported feeds and sessions; other installs and updates
+  keep them.
+- Needs Node 22 and the DuckDB CLI with the `spatial` extension.
 
 ### Fixed
 - Spatial SQL runs in one DuckDB process, and extension installation is retried only for a confirmed
@@ -197,7 +200,6 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 ### Changed
 - Imported datasets expire after 7 days; the dashboard server exits after 30 minutes without activity.
 - Importing a new feed stops a running dashboard session.
-- Installing the package clears `~/.gtfs-viz-cli` (later releases keep it unless `GTFS_VIZ_RESET_DATA=1`).
 
 [1.5.5]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.5
 [1.5.4]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.4

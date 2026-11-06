@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { execFileSync, spawnSync } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, symlinkSync, copyFileSync, mkdirSync } from "node:fs"
+import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
@@ -89,4 +90,20 @@ test("release notes refuse a missing version, an empty section and an unknown he
   assert.throws(() => releaseNotes("## [1.0.0] - 2026-01-01\n### Build notes\n- x\n", "1.0.0"), /Build notes/)
   assert.throws(() => releaseNotes("## [1.0.0] - 2026-01-01\nSummary line.\n### Added\n- x\n", "1.0.0"), /must start/)
   assert.throws(() => releaseNotes(changelog, "1.4"), /not a version/)
+})
+
+test("the notes script runs through a symlink and from a path with a space", () => {
+  const dir = mkdtempSync(path.join(os.tmpdir(), "release notes "))
+  const copy = path.join(dir, "with space", "release-notes.mjs")
+  mkdirSync(path.dirname(copy))
+  copyFileSync(script, copy)
+  const link = path.join(dir, "link.mjs")
+  symlinkSync(script, link)
+  for (const entry of [copy, link]) {
+    const ok = spawnSync(process.execPath, [entry, "1.4.0", path.join(root, "CHANGELOG.md")], { encoding: "utf8" })
+    assert.equal(ok.status, 0, ok.stderr)
+    assert.equal(ok.stdout, releaseNotes(changelog, "1.4.0"))
+    const missing = spawnSync(process.execPath, [entry, "9.9.9", path.join(root, "CHANGELOG.md")], { encoding: "utf8" })
+    assert.equal(missing.status, 1, `${entry} fails on a missing version`)
+  }
 })

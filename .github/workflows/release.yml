@@ -93,6 +93,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/packages"
           node .github/scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/packages/release-notes.md"
+          test -s "$RUNNER_TEMP/packages/release-notes.md"
           cat "$RUNNER_TEMP/packages/release-notes.md"
 
       - name: Install dependencies
