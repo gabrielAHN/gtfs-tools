@@ -1,7 +1,6 @@
 # GTFS Tools
 
 [![npm @gabrielahn/gtfs-tools](https://img.shields.io/npm/v/@gabrielahn/gtfs-tools?label=%40gabrielahn%2Fgtfs-tools)](https://www.npmjs.com/package/@gabrielahn/gtfs-tools)
-[![npm @gabrielahn/gtfs-viz-cli](https://img.shields.io/npm/v/@gabrielahn/gtfs-viz-cli?label=%40gabrielahn%2Fgtfs-viz-cli)](https://www.npmjs.com/package/@gabrielahn/gtfs-viz-cli)
 [![Release](https://img.shields.io/github/v/release/gabrielAHN/gtfs-tools)](https://github.com/gabrielAHN/gtfs-tools/releases)
 
 A command-line tool for GTFS transit feeds. Import a feed, browse and edit stations, stops, routes,
@@ -23,18 +22,6 @@ npm install -g @gabrielahn/gtfs-tools      # command: gtfs-tools
 You need Node.js 18+ and the [DuckDB CLI](https://duckdb.org/docs/installation) **v2.0.0**, either on
 `PATH` or set as `DUCKDB_BIN`. On first use the CLI runs `INSTALL gtfs FROM community`. To install from
 a different signed repository, set `GTFS_EXTENSION_REPOSITORY`.
-
-### npm packages
-
-Each release publishes both packages at the **same version**:
-
-| Package | Command | Notes |
-| --- | --- | --- |
-| [`@gabrielahn/gtfs-tools`](https://www.npmjs.com/package/@gabrielahn/gtfs-tools) | `gtfs-tools` | The CLI. |
-| [`@gabrielahn/gtfs-viz-cli`](https://www.npmjs.com/package/@gabrielahn/gtfs-viz-cli) | `gtfs-viz` | The former name. Depends on the same `gtfs-tools` version and runs it as `gtfs-viz`. |
-
-Both commands share the same data (`~/.gtfs-viz-cli`), dashboard and settings. If you want both
-commands, install each package with its own `npm install -g`.
 
 ## Quick start
 
@@ -88,7 +75,7 @@ npx skills add gabrielAHN/gtfs-tools    # the skill only
 ## Update
 
 ```bash
-gtfs-tools update            # updates the package that provides the command; keeps your data
+gtfs-tools update            # installs the latest @gabrielahn/gtfs-tools; keeps your data
 ```
 
 ## Development

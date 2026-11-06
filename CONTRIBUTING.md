@@ -48,8 +48,10 @@ env -u AI_AGENT \
 to one commit. `npm run dashboard` (`scripts/build-dashboard.mjs`) runs
 `yarn install --frozen-lockfile --ignore-engines` and `yarn build:dashboard` there, with `AI_AGENT`
 unset, and installs the result (`gtfs-viz/packages/web/dist`) into `dashboard/`. It needs yarn 1.x on
-`PATH` (`npm install -g yarn`, or `corepack enable`). The build's `dashboard-manifest.json` must name
-`gtfs-viz-dashboard` and declare `cliApi: 1`; its `commit` is the submodule commit. Links, hard links
+`PATH` (`npm install -g yarn`, or `corepack enable`). The build's `dashboard-manifest.json` is exactly
+`{"name": "gtfs-viz-dashboard", "commit": "<40-hex>", "cliApi": 1}`; its `commit` is the submodule commit.
+Manifests from before gtfs-viz dropped versions also carry a semver `version`; they are still accepted, so
+an installed older dashboard can be restored or replaced. Links, hard links
 and devices in the build are refused; source maps and `.DS_Store` are left out.
 
 - **Move the pin:** check out another gtfs-viz commit or tag, rebuild, test, and commit the submodule
@@ -74,16 +76,14 @@ and devices in the build are refused; source maps and `.DS_Store` are left out.
 
 ## Packages and releases
 
-- **Compatibility package:** `compat/gtfs-viz-cli` is `@gabrielahn/gtfs-viz-cli`. Its `prepack`
-  generates `skills/gtfs-viz/` from `skills/gtfs-tools/`, the same skill under its old name. That copy
-  is what lets 1.5.x's own `update --provider` upgrade it.
-- **Version bump:** bump the version in all of these together, so both packages always share one
-  version, and add a `CHANGELOG.md` entry:
-  - `package.json`;
-  - `compat/gtfs-viz-cli/package.json`, both its `version` and its `@gabrielahn/gtfs-tools` dependency;
-  - `skills/gtfs-tools/SKILL.md`.
-- **Release:** merging a PR that bumps the version runs `.github/workflows/release.yml`.
+This repository publishes one npm package, `@gabrielahn/gtfs-tools`, with semver versions.
+
+- **Version bump:** bump the version in all of these together and add a `CHANGELOG.md` entry:
+  - `package.json` and `package-lock.json`;
+  - `skills/gtfs-tools/SKILL.md` (`metadata.version`).
+- **Release:** merging a PR whose `package.json` change bumps the version runs
+  `.github/workflows/release.yml`.
   1. A read-only job checks out the submodule, checks, builds (the dashboard from the pinned gtfs-viz
-     commit) and packs both packages.
-  2. A second job tags `v<version>`, creates the GitHub release, and publishes `@gabrielahn/gtfs-tools`,
-     then `@gabrielahn/gtfs-viz-cli`, at that version with `--tag latest`.
+     commit) and packs the package.
+  2. A second job tags `v<version>`, creates the GitHub release, and publishes the packed
+     `@gabrielahn/gtfs-tools` with `--tag latest`.
