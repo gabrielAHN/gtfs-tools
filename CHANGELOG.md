@@ -105,7 +105,6 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 ### Fixed
 - Applying a reroute returns to the edited trip, so the replacement stops show immediately.
 - Reroute commands and skill links open the right form, edited trip or Edits & Export comparison view.
-- The release is published explicitly under npm's `latest` tag.
 
 ## [1.5.1] - 2026-08-24
 
