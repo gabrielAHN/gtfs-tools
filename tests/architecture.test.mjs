@@ -17,7 +17,7 @@ function files(dir) {
   });
 }
 test('consumers and built artifacts contain no database toolbox implementation', () => {
-  const candidates = ['src', 'scripts', 'compat', 'dist', 'dashboard'].filter(dir => existsSync(resolve(root, dir))).flatMap(dir => files(resolve(root, dir)));
+  const candidates = ['src', 'scripts', 'dist', 'dashboard'].filter(dir => existsSync(resolve(root, dir))).flatMap(dir => files(resolve(root, dir)));
   const violations = candidates.filter(path => {
     if (/\/tests?\//.test(path) || !/\.(ts|tsx|js|mjs|sql|hpp|cpp|h|c|cmake)$/.test(path)) return false;
     return /CREATE\s+(?:OR\s+REPLACE\s+)?MACRO\s+\w+|GTFS_(?:LOAD|INIT|REROUTE)_SQL|stops_with_casts|pathways_with_casts|routes_with_casts|CREATE\s+(?:OR\s+REPLACE\s+)?(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:RouteShape\w+|calendar(?:_dates)?|StopsView|PathwaysView|pathway_network)\s*\(/.test(readFileSync(path, 'utf8'));

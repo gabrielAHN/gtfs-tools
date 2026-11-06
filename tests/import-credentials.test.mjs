@@ -43,7 +43,7 @@ const setup = async (t) => {
     format: "esm",
     target: "node18",
   })
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-viz-cli", version: "0.0.0-test", type: "module" }))
+  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "0.0.0-test", type: "module" }))
   // A fake DuckDB that records every run and, like the real CLI, echoes its arguments in a 404 error.
   const invocations = path.join(root, "duckdb-invocations.txt")
   const fakeDuckDb = path.join(root, "fake-duckdb.sh")

@@ -1,4 +1,4 @@
-// Acceptance contract: `gtfs-viz import` accepts a local zip, an http(s) URL, or an s3:// object.
+// Acceptance contract: `gtfs-tools import` accepts a local zip, an http(s) URL, or an s3:// object.
 // Runs the real CLI bundle against a real DuckDB CLI and gtfs extension, with every
 // remote endpoint served from loopback. Skipped unless DUCKDB_BIN and GTFS_EXTENSION are set.
 import assert from "node:assert/strict"
@@ -110,7 +110,7 @@ const startServer = async (zipBytes, requestLog) => {
   return server
 }
 
-test("gtfs-viz import accepts a local zip, an http(s) URL and an s3:// object", { skip, timeout: 600_000 }, async (t) => {
+test("gtfs-tools import accepts a local zip, an http(s) URL and an s3:// object", { skip, timeout: 600_000 }, async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "gtfs-viz-remote-import-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const home = path.join(root, "home")
@@ -139,7 +139,7 @@ test("gtfs-viz import accepts a local zip, an http(s) URL and an s3:// object", 
     format: "esm",
     target: "node18",
   })
-  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-viz-cli", version: "0.0.0-test", type: "module" }))
+  await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "@gabrielahn/gtfs-tools", version: "0.0.0-test", type: "module" }))
   const cli = path.join(packageRoot, "dist", "index.js")
 
   // DuckDB wrapper: unsigned test artifact, isolated extension directories

@@ -48,9 +48,9 @@ test("install-skill installs gtfs-tools and reports an old gtfs-viz skill as sta
   ])
   const installed = await readFile(path.join(skills, "gtfs-tools", "SKILL.md"), "utf8")
   assert.match(installed, /^name: gtfs-tools$/m)
-  assert.match(installed, /^allowed-tools: Bash\(gtfs-tools:\*\) Bash\(gtfs-viz:\*\) Bash\(duckdb:\*\) Read$/m)
+  assert.match(installed, /^allowed-tools: Bash\(gtfs-tools:\*\) Bash\(duckdb:\*\) Read$/m)
   assert.match(installed, /^ {2}provider: anthropic$/m)
-  assert.match(installed, /run `gtfs-tools` \(or `gtfs-viz` if you installed `@gabrielahn\/gtfs-viz-cli`; same CLI/i)
+  assert.doesNotMatch(installed, /gtfs-viz install-skill|Bash\(gtfs-viz:/, "the skill names only the gtfs-tools command")
   assert.equal(await readFile(path.join(oldSkill, "SKILL.md"), "utf8"), "---\nname: gtfs-viz\n---\n# old skill\n", "the old skill is untouched")
 
   const again = await cli("install-skill", "anthropic", "--target-dir", skills)
