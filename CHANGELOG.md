@@ -1,72 +1,63 @@
 # Changelog
 
-All notable changes to GTFS Tools (`@gabrielahn/gtfs-tools`, command `gtfs-tools`) are documented in this
-file. The CLI started in [gabrielAHN/gtfs-viz](https://github.com/gabrielAHN/gtfs-viz) (`packages/cli`).
-Versions 1.3.0 to 1.5.3 were published from there under its former npm name, with the command `gtfs-viz`;
-their links point to gtfs-viz pull requests. The web app, the dashboard source and the docs stay in
-gtfs-viz, which keeps its own dated CHANGELOG.
+All notable changes to GTFS Tools (`@gabrielahn/gtfs-tools`) are documented in this file, following
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each version lists its changes under Added,
+Changed, Removed, Fixed and Security, and its GitHub release notes are that section.
 
 ## [1.5.5] - 2026-11-05
 
-### Removed
-- The compatibility package and the `gtfs-viz` command name. `@gabrielahn/gtfs-tools` is the only npm
-  package; its former npm name is deprecated on npm and points here. Help, usage, hints, errors and
-  `--version` always say `gtfs-tools`, and `update` installs `@gabrielahn/gtfs-tools`. The data directory
-  `~/.gtfs-viz-cli`, the `GTFS_VIZ_*` variables and the dashboard's CLI API v1 (`/__gtfs_viz/api/*`) keep
-  their names, so an existing dataset keeps working.
-- The agent skill names only `gtfs-tools`; its Claude Code `allowed-tools` drops `Bash(gtfs-viz:*)`.
-
 ### Changed
-- The dashboard manifest no longer needs a `version`: gtfs-viz has no versions, so its manifest is exactly
-  `{name, commit, cliApi}`. `scripts/build-dashboard.mjs` and its restore of an interrupted update accept
-  that shape and the older one with a semver `version`, so an installed older dashboard can still be
-  restored or replaced. Messages name a dashboard by its short commit.
+- The bundled dashboard's manifest no longer needs a `version`; it is exactly `{name, commit, cliApi}`.
+  `scripts/build-dashboard.mjs` and its restore of an interrupted update accept that shape and the older
+  one with a semver `version`, so an installed older dashboard can still be restored or replaced.
+  Messages name a dashboard by its short commit.
+- A release packs and publishes one package, and the version-bump check watches only `package.json`.
 
-### Build notes
-- A release packs and publishes only `@gabrielahn/gtfs-tools`; the version-bump check watches only
-  `package.json`.
+### Removed
+- The switch that made messages name a `gtfs-viz` command. Help, usage, hints,
+  errors and `--version` always say `gtfs-tools`, and `update` always installs `@gabrielahn/gtfs-tools`.
+  The data directory `~/.gtfs-viz-cli`, the `GTFS_VIZ_*` variables and the dashboard's CLI API v1
+  (`/__gtfs_viz/api/*`) keep their names, so an existing dataset keeps working.
+- `Bash(gtfs-viz:*)` from the agent skill's Claude Code `allowed-tools`; the skill names only `gtfs-tools`.
 
 ## [1.5.4] - 2026-11-05
 
-### Changed
-- The CLI moved from gabrielAHN/gtfs-viz (`packages/cli`) to its own repository, gabrielAHN/gtfs-tools,
-  with its git history. gtfs-viz keeps the web app, its dashboard and the docs
-  ([gtfs-viz#25](https://github.com/gabrielAHN/gtfs-viz/pull/25), [#1](https://github.com/gabrielAHN/gtfs-tools/pull/1)).
-- It is now published as `@gabrielahn/gtfs-tools` with the command `gtfs-tools`. 1.5.4 was also published
-  under the former npm name as a compatibility package providing the `gtfs-viz` command; 1.5.5 removes it.
-  The dataset (`~/.gtfs-viz-cli`), the dashboard daemon and the `DUCKDB_BIN`, `GTFS_EXTENSION_REPOSITORY`
-  and `GTFS_VIZ_*` variables are unchanged.
-- The CLI loads the separate GTFS DuckDB `gtfs` extension instead of bundling its own SQL toolbox, and
-  imports feeds with the extension's `gtfs_import` pragma ([gtfs-viz#20](https://github.com/gabrielAHN/gtfs-viz/pull/20)).
-- The CLI talks to the `gtfs` DuckDB extension directly and no longer depends on any `@gtfs-viz`
-  package: it carries its own copy of the extension client, the import SQL and the named queries.
-- The CLI installs the `gtfs` extension from the DuckDB community repository unless
-  `GTFS_EXTENSION_REPOSITORY` names another repository. Community builds need a DuckDB v2.0.0 CLI.
-- DuckDB runs without `AI_AGENT`, so DuckDB 2.0's agent mode never changes its output.
-- The package bundles the GTFS Viz dashboard, built from the gtfs-viz submodule: gabrielAHN/gtfs-viz
-  is a git submodule at `gtfs-viz/`, and `scripts/build-dashboard.mjs` (`npm run dashboard`) runs its
-  `yarn build:dashboard` and installs the result into `dashboard/`. The CLI refuses a dashboard whose
-  manifest does not declare `cliApi: 1`. `GTFS_VIZ_DASHBOARD_DIST` still serves another build.
-- The agent skill is now `gtfs-tools` (`npx skills add gabrielAHN/gtfs-tools`). An old `gtfs-viz` skill
-  directory is left in place and reported as stale.
-- The npm README links to the docs site.
-
-### Upgrading from 1.5.x
-- A dashboard daemon that 1.5.x left running is replaced the first time 1.5.4 opens the dashboard.
-  `daemon.json` now records the daemon's `cliVersion` and `packageRoot`. A daemon is reused when it runs
-  the same version from an install that still holds that version and its dashboard. Otherwise it is
-  stopped (SIGTERM, then SIGKILL, only after checking its command line and port) and a new one starts, so
-  the dashboard no longer fails with HTTP 500 after an upgrade.
-- `gtfs-tools stop` and a re-import only signal the recorded daemon pid after the same check, so a reused
-  pid is never killed.
-
 ### Added
-- `gtfs-tools import` also takes an `http(s)://` URL or an `s3://`, `s3a://`, `s3n://` or `r2://` object.
-  The feed is downloaded and checked before the current dataset changes, and the download is deleted
-  afterwards, also on Ctrl-C or SIGTERM.
+- `import` also takes an `http(s)://` URL or an `s3://`, `s3a://`, `s3n://` or `r2://` object. The feed is
+  downloaded and checked before the current dataset changes, and the download is deleted afterwards, also
+  on Ctrl-C or SIGTERM.
 - Bucket access goes through DuckDB secrets: a matching secret (including persistent ones), then AWS
   environment variables, profile or SSO through `credential_chain`, then an anonymous request.
   S3-compatible stores such as MinIO use a secret's `ENDPOINT`; `r2://` needs an R2 secret.
+
+### Changed
+- The command is `gtfs-tools` (it was `gtfs-viz`), and the agent skill is `gtfs-tools`
+  (`npx skills add gabrielAHN/gtfs-tools`); an old `gtfs-viz` skill directory is left in place and
+  reported as stale. The dataset (`~/.gtfs-viz-cli`), the dashboard daemon and the `DUCKDB_BIN`,
+  `GTFS_EXTENSION_REPOSITORY` and `GTFS_VIZ_*` variables are unchanged.
+- The CLI loads the GTFS DuckDB `gtfs` extension instead of bundling its own SQL toolbox, and imports
+  feeds with the extension's `gtfs_import` pragma. It carries its own copy of the extension client, the
+  import SQL and the named queries, and no longer depends on any `@gtfs-viz` package.
+- The `gtfs` extension installs from the DuckDB community repository unless `GTFS_EXTENSION_REPOSITORY`
+  names another repository. Community builds need a DuckDB v2.0.0 CLI.
+- DuckDB runs without `AI_AGENT`, so DuckDB 2.0's agent mode never changes its output.
+- The bundled dashboard is built from GTFS Viz, a git submodule at `gtfs-viz/`:
+  `scripts/build-dashboard.mjs` (`npm run dashboard`) runs its `yarn build:dashboard` and installs the
+  result into `dashboard/`. The CLI refuses a dashboard whose manifest does not declare `cliApi: 1`.
+  `GTFS_VIZ_DASHBOARD_DIST` still serves another build.
+- The README links to the docs site.
+- A release first checks, builds and packs in a job with read-only contents and no npm token; a second job
+  tags `v<version>`, creates the GitHub release and publishes the packed tarball without installing
+  anything. CI runs the DuckDB integration tests on the DuckDB v2.0.0 CLI with the community `gtfs`
+  extension and fails on any skipped test.
+
+### Fixed
+- A dashboard daemon that an older version left running is replaced the first time the dashboard opens,
+  so the dashboard no longer fails with HTTP 500 after an upgrade. `daemon.json` records the daemon's
+  `cliVersion` and `packageRoot`, and a daemon is reused only when it runs the same version from an
+  install that still holds that version and its dashboard.
+- `stop`, a re-import and a daemon replacement signal the recorded daemon pid (SIGTERM, then SIGKILL)
+  only after checking its command line and port, so a reused pid is never killed.
 
 ### Security
 - URLs with a user name or password are refused. An `@` in an http(s) path must be written as `%40`,
@@ -84,22 +75,10 @@ gtfs-viz, which keeps its own dated CHANGELOG.
 - Names that the file system would store as one file (case or Unicode NFC/NFD variants) are refused with
   a clear error, and a dashboard left in `.dashboard.old-*` by an interrupted update is restored on the
   next run.
-
-### Build notes
-- Clone with `git clone --recurse-submodules` (or run `git submodule update --init`). npm with a
-  committed `package-lock.json`: `npm ci`, `npm run check`, `npm run build` (`build:cli` + `dashboard`,
-  which needs yarn 1.x for the gtfs-viz submodule), `npm test`. The npm package never contains
-  `gtfs-viz/`.
-- CI runs the DuckDB integration tests on the DuckDB v2.0.0 CLI with the signed `gtfs` extension from the
-  DuckDB community repository, and fails on any skipped test. A version bump merged to `main` first
-  checks, builds and packs in a job with read-only contents and no npm token. Only then does a second
-  job tag `v<version>`, create the GitHub release and publish the packed tarball with `--tag latest`,
-  without installing anything. The npm token is set only in the publish step, and checkouts that run
-  `npm ci` keep no git credentials.
+- The release workflow sets the npm token only in its publish step, and checkouts that run `npm ci` keep
+  no git credentials.
 
 ## [1.5.3] - 2026-09-16
-
-Parallel route bands ([gtfs-viz#19](https://github.com/gabrielAHN/gtfs-viz/pull/19)).
 
 ### Added
 - `route-bands` builds route bands on demand with the DuckDB corridor macros, so routes that share a
@@ -107,8 +86,9 @@ Parallel route bands ([gtfs-viz#19](https://github.com/gabrielAHN/gtfs-viz/pull/
 - The bundled skill documents the route-bands workflow.
 
 ### Changed
-- Routine installs and updates keep imported feeds and sessions. A destructive reset needs
-  `GTFS_VIZ_RESET_DATA=1`.
+- Installing with `GTFS_VIZ_RESET_DATA=1` resets imported feeds and sessions; other installs and updates
+  keep them.
+- Needs Node 22 and the DuckDB CLI with the `spatial` extension.
 
 ### Fixed
 - Spatial SQL runs in one DuckDB process, and extension installation is retried only for a confirmed
@@ -117,12 +97,7 @@ Parallel route bands ([gtfs-viz#19](https://github.com/gabrielAHN/gtfs-viz/pull/
 - Route-band rows and their macro-version metadata rebuild in one transaction; a failed or out-of-memory
   rebuild keeps the last valid result.
 
-### Build notes
-- Requires Node 22 and the DuckDB CLI with the `spatial` extension.
-
 ## [1.5.2] - 2026-08-24
-
-Reroute deep links ([gtfs-viz#18](https://github.com/gabrielAHN/gtfs-viz/pull/18)).
 
 ### Added
 - `reroute --trip <id>` opens a trip directly in its reroute form.
@@ -130,11 +105,8 @@ Reroute deep links ([gtfs-viz#18](https://github.com/gabrielAHN/gtfs-viz/pull/18
 ### Fixed
 - Applying a reroute returns to the edited trip, so the replacement stops show immediately.
 - Reroute commands and skill links open the right form, edited trip or Edits & Export comparison view.
-- The release is published explicitly under npm's `latest` tag.
 
 ## [1.5.1] - 2026-08-24
-
-Alert editing and trip rerouting ([gtfs-viz#17](https://github.com/gabrielAHN/gtfs-viz/pull/17)).
 
 ### Added
 - Trip, stop-time, calendar and calendar-date editing, with batch `apply` of a changeset.
@@ -157,8 +129,6 @@ Alert editing and trip rerouting ([gtfs-viz#17](https://github.com/gabrielAHN/gt
 
 ## [1.5.0] - 2026-07-22
 
-Trip compare and trip editing ([gtfs-viz#16](https://github.com/gabrielAHN/gtfs-viz/pull/16)).
-
 ### Added
 - `trips` and `trip` commands with `--route`, `--service`, `--compare` and `--view`.
 - `calendar` with a `--route` filter and service detail lookup.
@@ -177,8 +147,6 @@ Trip compare and trip editing ([gtfs-viz#16](https://github.com/gabrielAHN/gtfs-
 
 ## [1.4.0] - 2026-06-15
 
-Routes and CLI overhaul ([gtfs-viz#15](https://github.com/gabrielAHN/gtfs-viz/pull/15)).
-
 ### Added
 - `routes` and `route` commands with `--service`, `--trip` and `--compare`, and positional views such as
   `route "Red Line" service --data`.
@@ -192,13 +160,11 @@ Routes and CLI overhaul ([gtfs-viz#15](https://github.com/gabrielAHN/gtfs-viz/pu
 
 ## [1.3.2] - 2026-05-04
 
-Published from the merged monorepo on gtfs-viz `main` ([gtfs-viz#12](https://github.com/gabrielAHN/gtfs-viz/pull/12)).
+### Changed
+- The README and the skill say the extension SQL is embedded in the CLI; no separate install is needed.
 
 ### Fixed
 - DuckDB errors printed on stderr are reported as errors instead of being ignored.
-
-### Changed
-- The README and the skill say the extension SQL is embedded in the CLI; no separate install is needed.
 
 ## [1.3.1] - 2026-05-01
 
@@ -217,8 +183,6 @@ Published from the merged monorepo on gtfs-viz `main` ([gtfs-viz#12](https://git
 
 ## [1.3.0] - 2026-05-01
 
-First npm release, from the gtfs-viz monorepo ([gtfs-viz#12](https://github.com/gabrielAHN/gtfs-viz/pull/12)).
-
 ### Added
 - A self-contained CLI (esbuild bundle, no runtime npm dependencies) that imports a GTFS zip into a local
   DuckDB database and opens a browser dashboard.
@@ -235,4 +199,14 @@ First npm release, from the gtfs-viz monorepo ([gtfs-viz#12](https://github.com/
 ### Changed
 - Imported datasets expire after 7 days; the dashboard server exits after 30 minutes without activity.
 - Importing a new feed stops a running dashboard session.
-- Installing the package clears `~/.gtfs-viz-cli` (later releases keep it unless `GTFS_VIZ_RESET_DATA=1`).
+
+[1.5.5]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.5
+[1.5.4]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.4
+[1.5.3]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.3
+[1.5.2]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.2
+[1.5.1]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.1
+[1.5.0]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.5.0
+[1.4.0]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.4.0
+[1.3.2]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.3.2
+[1.3.1]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.3.1
+[1.3.0]: https://github.com/gabrielAHN/gtfs-tools/releases/tag/v1.3.0

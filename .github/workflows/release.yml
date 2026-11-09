@@ -5,7 +5,8 @@ name: Release & Publish
 # 1. build: with read-only contents and no npm token, check, build (the CLI bundle plus the dashboard built from
 #    the gtfs-viz submodule at its pinned commit) and npm pack @gabrielahn/gtfs-tools. The .tgz is handed over
 #    as an artifact.
-# 2. publish: only after build succeeded, tag v<version> on the built commit, create the GitHub release, then
+# 2. publish: only after build succeeded, tag v<version> on the built commit, create the GitHub release (its
+#    notes are the version's CHANGELOG.md section), then
 #    npm publish the tarball. It installs nothing and runs no package scripts. A version already on npm is
 #    skipped.
 #
@@ -84,6 +85,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+      # The GitHub release notes are the version's CHANGELOG.md section plus an install line. A version
+      # without a section fails here, before anything is built.
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/packages"
+          node .github/scripts/release-notes.mjs "$VERSION" > "$RUNNER_TEMP/packages/release-notes.md"
+          test -s "$RUNNER_TEMP/packages/release-notes.md"
+          cat "$RUNNER_TEMP/packages/release-notes.md"
+
       - name: Install dependencies
         run: npm ci
 
@@ -138,7 +150,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: npm-package
-          path: ${{ runner.temp }}/packages/*.tgz
+          path: |
+            ${{ runner.temp }}/packages/*.tgz
+            ${{ runner.temp }}/packages/release-notes.md
           if-no-files-found: error
           retention-days: 7
 
@@ -189,13 +203,18 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         uses: actions/github-script@v7
         env:
-          PR_BODY: ${{ github.event.pull_request.body || '' }}
+          NOTES: ${{ runner.temp }}/packages/release-notes.md
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const fs = require("node:fs");
             const { owner, repo } = context.repo;
             const tag = process.env.TAG;
-            const prBody = process.env.PR_BODY;
+            const body = fs.readFileSync(process.env.NOTES, "utf8");
+            if (!body.trim()) {
+              core.setFailed("release-notes.md is empty");
+              return;
+            }
 
             // Create the tag unless a re-run already did (on this same commit; checked above).
             try {
@@ -204,20 +223,17 @@ jobs:
               if (error.status !== 422) throw error;
             }
 
-            // Create release with PR body or auto-generated notes
-            const useAutoNotes = !prBody || prBody.trim().length === 0;
+            // The release notes are the version's CHANGELOG.md section, written by the build job.
             await github.rest.repos.createRelease({
               owner,
               repo,
               tag_name: tag,
               name: tag,
-              body: useAutoNotes ? undefined : prBody,
-              generate_release_notes: useAutoNotes,
+              body,
               make_latest: "true",
             });
             core.info(`Created release ${tag}`);
 
-      # No npm token here: npm view reads public metadata.
       - name: Check if the version is already published
         id: npm_check
         run: |
