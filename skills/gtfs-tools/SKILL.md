@@ -1,6 +1,6 @@
 ---
 name: gtfs-tools
-description: Import GTFS transit feeds, query station/stop/pathway/route/trip/calendar/shape data, edit connections, nodes, routes, trips, and stop times, compare trip service patterns and schedules, export changes to GTFS CSV, and open a local browser dashboard with the gtfs-tools CLI. Use when working with GTFS data, transit stations, pathways, routes, trips, schedules, or accessibility audits.
+description: Import and validate GTFS transit feeds, query station/stop/pathway/route/trip/calendar/shape data, edit connections, nodes, routes, trips, and stop times, compare trip service patterns and schedules, export changes to GTFS CSV, and open a local browser dashboard with the gtfs-tools CLI. Use when working with GTFS data, transit stations, pathways, routes, trips, schedules, or accessibility audits.
 license: MIT
 metadata:
   author: gabrielahn
@@ -86,6 +86,18 @@ Use plain or quoted paths or URLs. Do not use backticks. Import is one-shot; a n
 Remote feeds download to `~/.gtfs-viz-cli/downloads/` first, must be a zip archive and are deleted after the import. Download and validation failures (not a zip, no `stops.txt`) leave the current dataset untouched; a failure during the DuckDB import itself still clears it, as for local files. Query strings (pre-signed URLs) are used for the download but never stored or printed. URLs with an embedded user name or password are refused, and other schemes (`gs://`, `az://`, `hf://`, …) are not supported. An unencoded `@` in an http(s) URL path is refused too: percent-encode it as `%40`, and never put credentials in a URL.
 
 `s3://` and `r2://` objects authenticate through DuckDB secrets: first any matching secret (including persistent ones, e.g. `duckdb -c "CREATE PERSISTENT SECRET (TYPE s3, KEY_ID '…', SECRET '…', REGION 'us-east-1')"`); then, for `s3://`, AWS environment variables, an AWS profile or SSO through a temporary `credential_chain` secret; then an anonymous request. `r2://` needs `CREATE PERSISTENT SECRET (TYPE r2, KEY_ID '…', SECRET '…', ACCOUNT_ID '…')`. MinIO and other S3-compatible stores use an s3 secret with `ENDPOINT`, `URL_STYLE 'path'` and `USE_SSL`. Never ask the user to paste secret values into a command you run; ask them to create the secret themselves.
+
+## Validate
+
+```bash
+gtfs-tools validate <feed.zip|directory|https://…|s3://…|r2://…>
+gtfs-tools validate /absolute/path/to/feed.zip
+gtfs-tools validate /absolute/path/to/feed/ --date 2026-06-01
+gtfs-tools validate https://example.com/gtfs/feed.zip --format json
+gtfs-tools validate s3://my-bucket/gtfs/feed.zip --format csv
+```
+
+Validation runs the gtfs extension's `gtfs_validate` pragma: the MobilityData GTFS validator's rules for stops, pathways, routes, trips, stop_times, shapes, calendar and calendar_dates only (not agency, feed_info, frequencies, transfers, fares or flex). It never changes the imported dataset, so it does not need `import` first. The default output is a summary table by rule; `--format json` is a `report.json`-shaped document with every notice; `--format csv` is one row per notice. `--date` sets the date validated for (default: today). It exits 0 without ERROR notices, 1 with at least one, and 2 when validation could not run. It needs the gtfs extension 1.1.0 or later; if it reports an older one, tell the user to run `duckdb -c "UPDATE EXTENSIONS (gtfs)"` themselves.
 
 ## Browse & Filter
 

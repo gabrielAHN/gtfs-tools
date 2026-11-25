@@ -50,6 +50,17 @@ Remote feeds download to `~/.gtfs-viz-cli/downloads/`, must be zip archives and 
 
 The `gtfs` extension installs from the DuckDB community repository (needs a DuckDB v2.0.0 CLI) unless `GTFS_EXTENSION_REPOSITORY` selects another repository.
 
+## Validate
+
+```bash
+gtfs-tools validate <feed.zip|directory|https://…|s3://…|r2://…>  # Validate a feed (summary by rule)
+gtfs-tools validate ./feed/ --date 2026-06-01   # A directory of .txt files, for a given date (default: today)
+gtfs-tools validate ./feed.zip --format json    # report.json shape: summary, then every notice of each code
+gtfs-tools validate ./feed.zip --format csv     # One row per notice: code,severity,filename,csv_row_number,notice
+```
+
+Runs the gtfs extension's `gtfs_validate` pragma (MobilityData validator rules for stops, pathways, routes, trips, stop_times, shapes, calendar and calendar_dates). Remote feeds download as for `import`; the imported dataset is never changed. It exits 0 without ERROR notices, 1 with at least one, and 2 when validation could not run. Needs the gtfs extension 1.1.0 or later (`duckdb -c "UPDATE EXTENSIONS (gtfs)"` for the community repository; never run automatically). See `gtfs-tools h validate`.
+
 ## Browse Data
 
 Default opens dashboard. Use `--data` for terminal output.
