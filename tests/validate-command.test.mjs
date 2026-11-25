@@ -42,11 +42,15 @@ if (directory) {
     mode = statSync(directory).mode & 0o777
   } catch (error) { files = String(error) }
 }
-appendFileSync(process.env.FAKE_DUCKDB_LOG, JSON.stringify({ argv, stdin, directory, files, mode }) + "\\n")
+appendFileSync(process.env.FAKE_DUCKDB_LOG, JSON.stringify({ argv, stdin, directory, files, mode, pid: process.pid }) + "\\n")
+// FAKE_DUCKDB_HANG: run until killed, as a long validation would.
+if (process.env.FAKE_DUCKDB_HANG) setInterval(() => {}, 1000)
+else {
 const read = (name) => (process.env[name] ? readFileSync(process.env[name], "utf8") : "")
 process.stdout.write(read("FAKE_DUCKDB_STDOUT"))
 process.stderr.write(read("FAKE_DUCKDB_STDERR"))
 process.exit(Number(process.env.FAKE_DUCKDB_EXIT || 0))
+}
 `
 
 let bundlePromise
@@ -107,7 +111,13 @@ const setup = async (t) => {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line))
-  return { root, home, tmp, cli, respond, invocations, dataRoot: path.join(home, ".gtfs-viz-cli") }
+  // The CLI as a child process the test can signal; `exited` resolves to { code, signal }.
+  const start = (...args) => {
+    const child = spawn(process.execPath, [path.join(packageRoot, "dist", "index.js"), ...args], { env: { ...env, FAKE_DUCKDB_HANG: "1" }, cwd: root, stdio: "ignore" })
+    const exited = new Promise((resolve) => child.on("close", (code, signal) => resolve({ code, signal })))
+    return { child, exited }
+  }
+  return { root, home, tmp, cli, start, respond, invocations, dataRoot: path.join(home, ".gtfs-viz-cli") }
 }
 
 const SUMMARY = [
@@ -388,6 +398,29 @@ test("a zip is validated from a private temporary directory holding only the 8 f
   assert.deepEqual(await readdir(env.tmp), [], "the temporary directory is removed")
   assert.equal(await readdir(path.join(env.dataRoot, "current")).catch((error) => error.code), "ENOENT", "no current dataset")
 })
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  test(`${signal} during validation kills DuckDB, removes the temporary directory and ends the CLI by the signal`, async (t) => {
+    const env = await setup(t)
+    const zipPath = await makeZip(env.root, "feed.zip", { "stops.txt": "stop_id\nS1\n" })
+    await env.respond()
+    const { child, exited } = env.start("validate", zipPath)
+    let invocation
+    for (let attempt = 0; attempt < 200 && !invocation; attempt++) {
+      ;[invocation] = await env.invocations()
+      if (!invocation) await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    assert.ok(invocation, "DuckDB never started")
+    assert.equal((await readdir(env.tmp)).length, 1, "the temporary directory exists while DuckDB runs")
+    child.kill(signal)
+    assert.deepEqual(await exited, { code: null, signal })
+    assert.deepEqual(await readdir(env.tmp), [])
+    // Killed, then reaped once the CLI is gone (allow a moment for the reaping).
+    const alive = () => { try { process.kill(invocation.pid, 0); return true } catch { return false } }
+    for (let attempt = 0; attempt < 40 && alive(); attempt++) await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal(alive(), false, "DuckDB was killed")
+  })
+}
 
 test("a zip without stops.txt is still validated: the validator reports missing files", async (t) => {
   const env = await setup(t)

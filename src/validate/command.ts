@@ -7,7 +7,7 @@ import { defaultExtensionStartup, runDuckDb } from "../duckdb/runner.js";
 import { extractZipEntry, findGtfsEntry, listZipEntries, validateFeed } from "../feed/zip.js";
 import { safeTerminalText } from "../output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "../remote/download.js";
-import type { RemoteFeedSource } from "../remote/download.js";
+import type { RemoteFeedSource, SignalCleanup } from "../remote/download.js";
 import { parseFeedSource, redactSource, sourceLabel } from "../remote/source.js";
 import type { FeedSource } from "../remote/source.js";
 import { downloadsDir } from "../session/metadata.js";
@@ -102,10 +102,12 @@ const extractFeed = async (zipPath: string, directory: string) => {
   }
 };
 
-// Validates a zip from a new private temporary directory holding only the extracted files. The
-// directory is always removed afterwards.
-const validateZip = async (zipPath: string, date: string) => {
+// Validates a zip from a new private (0700) temporary directory holding only the extracted files.
+// The directory is always removed afterwards: on success, on failure and, through `cleanup`, on
+// Ctrl-C or SIGTERM (which also kill DuckDB).
+const validateZip = async (zipPath: string, date: string, cleanup: SignalCleanup) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-validate-"));
+  cleanup.add(directory);
   try {
     await extractFeed(zipPath, directory);
     return await runValidation(directory, date);
@@ -115,23 +117,27 @@ const validateZip = async (zipPath: string, date: string) => {
 };
 
 // A directory of .txt files is validated as it is; a zip path gets import's checks.
-const validateLocal = async (input: string, date: string) => {
+const validateLocal = async (input: string, date: string, cleanup: SignalCleanup) => {
   const resolved = path.resolve(input);
   if ((await stat(resolved).catch(() => undefined))?.isDirectory()) return runValidation(resolved, date);
-  return validateZip(await validateFeed(input), date);
+  return validateZip(await validateFeed(input), date, cleanup);
 };
 
 // Downloads exactly as import does (downloads/<random>.zip, checked to be a zip), then validates the
 // zip. The download is removed once extracted, and on failure or Ctrl-C/SIGTERM.
-const validateRemote = async (source: RemoteFeedSource, date: string) => {
+const validateRemote = async (source: RemoteFeedSource, date: string, cleanup: SignalCleanup) => {
+  const download = await downloadFeed(source, downloadsDir, cleanup);
+  try {
+    return await validateZip(download.file, date, cleanup);
+  } finally {
+    await rm(download.file, { force: true });
+  }
+};
+
+const validateSource = async (source: FeedSource, date: string) => {
   const cleanup = cleanupOnSignal();
   try {
-    const download = await downloadFeed(source, downloadsDir, cleanup);
-    try {
-      return await validateZip(download.file, date);
-    } finally {
-      await rm(download.file, { force: true });
-    }
+    return source.kind === "local" ? await validateLocal(source.path, date, cleanup) : await validateRemote(source, date, cleanup);
   } finally {
     cleanup.dispose();
   }
@@ -162,7 +168,7 @@ export const commandValidate = async (args: Args): Promise<number> => {
   }
   const label = source.kind === "local" ? path.basename(path.resolve(source.path)) : source.label;
   try {
-    const result = source.kind === "local" ? await validateLocal(source.path, options.date) : await validateRemote(source, options.date);
+    const result = await validateSource(source, options.date);
     if (options.format === "json") process.stdout.write(`${JSON.stringify(buildReport(result, label, options.date), null, 2)}\n`);
     else if (options.format === "csv") process.stdout.write(renderCsv(result));
     else process.stdout.write(renderTable(result, label, options.date));
