@@ -190,6 +190,62 @@ test("the table format names the source and date, lists the summary and counts n
   assert.equal(lines.at(-1), "3 errors, 1 warning, 3 infos")
 })
 
+test("warnings and infos alone exit 0", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond({ summary: SUMMARY.filter((row) => row.severity !== "ERROR"), notices: NOTICES.filter((row) => row.severity !== "ERROR") })
+  const result = await env.cli("validate", feed, "--date", "2026-03-01")
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout.trimEnd().split("\n").at(-1), "0 errors, 1 warning, 3 infos")
+})
+
+test("a feed with no notices exits 0 and names the files the rules cover", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond()
+  const result = await env.cli("validate", feed, "--date", "2026-03-01")
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /passed the validated rules/)
+  for (const file of ["stops.txt", "pathways.txt", "routes.txt", "trips.txt", "stop_times.txt", "shapes.txt", "calendar.txt", "calendar_dates.txt"]) {
+    assert.ok(result.stdout.includes(file), `${file} missing from:\n${result.stdout}`)
+  }
+  assert.doesNotMatch(result.stdout, /severity\s+code/)
+  assert.equal(result.stdout.trimEnd().split("\n").at(-1), "0 errors, 0 warnings, 0 infos")
+})
+
+test("--date must be a real YYYY-MM-DD date and defaults to today in local time", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond()
+  for (const date of ["2026-02-30", "2026-13-01", "2026-1-5", "20260105", "yesterday", "2026-02-29", "0000-00-00"]) {
+    const result = await env.cli("validate", feed, "--date", date)
+    assert.equal(result.code, 2, `${date}: ${result.stderr}`)
+    assert.match(result.stderr, /--date/, date)
+  }
+  const missing = await env.cli("validate", feed, "--date")
+  assert.equal(missing.code, 2, missing.stderr)
+  assert.deepEqual(await env.invocations(), [], "no DuckDB run for a bad date")
+  const leap = await env.cli("validate", feed, "--date", "2028-02-29")
+  assert.equal(leap.code, 0, leap.stderr)
+  assert.ok(pragmaSql((await env.invocations())[0]).includes("', '2028-02-29');"))
+  // The default is the local date: UTC-12 and UTC+14 are 26 hours apart, so they never share a date
+  // and at least one of them differs from the UTC date.
+  for (const [zone, offsetHours] of [["Etc/GMT+12", -12], ["Etc/GMT-14", 14]]) {
+    const localDate = () => new Date(Date.now() + offsetHours * 3600 * 1000).toISOString().slice(0, 10)
+    const before = localDate()
+    const local = await env.cli("validate", feed, { TZ: zone })
+    const after = localDate()
+    assert.equal(local.code, 0, local.stderr)
+    const sql = pragmaSql((await env.invocations()).at(-1))
+    const date = /, '(\d{4}-\d{2}-\d{2})'\);/.exec(sql)?.[1]
+    assert.ok(date === before || date === after, `${zone}: ${sql}`)
+    assert.ok(local.stdout.startsWith(`Validated feed for ${date} `), local.stdout)
+  }
+})
+
 test("usage errors exit 2 without running DuckDB", async (t) => {
   const env = await setup(t)
   await writeFile(path.join(env.root, "feed.zip"), "PK")

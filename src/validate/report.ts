@@ -108,11 +108,15 @@ export const countsLine = ({ errors, warnings, infos }: Counts) =>
 // goes through safeTerminalText.
 export const renderTable = (result: ValidationResult, label: string, date: string) => {
   const lines = [`Validated ${safeTerminalText(label)} for ${date} with the gtfs DuckDB extension`, ""];
-  const header = ["severity", "code", "notices"];
-  const rows = result.summary.map((row) => [row.severity, safeTerminalText(row.code), String(row.totalNotices)]);
-  const widths = header.map((title, index) => Math.max(title.length, ...rows.map((row) => row[index].length)));
-  const render = (values: string[]) => values.map((value, index) => value.padEnd(widths[index])).join("  ").trimEnd();
-  lines.push(render(header), widths.map((width) => "─".repeat(width)).join("  "), ...rows.map(render));
+  if (result.summary.length === 0) {
+    lines.push(`No notices: the feed passed the validated rules for ${VALIDATED_FILES.slice(0, -1).join(", ")} and ${VALIDATED_FILES.at(-1)}.`);
+  } else {
+    const header = ["severity", "code", "notices"];
+    const rows = result.summary.map((row) => [row.severity, safeTerminalText(row.code), String(row.totalNotices)]);
+    const widths = header.map((title, index) => Math.max(title.length, ...rows.map((row) => row[index].length)));
+    const render = (values: string[]) => values.map((value, index) => value.padEnd(widths[index])).join("  ").trimEnd();
+    lines.push(render(header), widths.map((width) => "─".repeat(width)).join("  "), ...rows.map(render));
+  }
   lines.push("", countsLine(countNotices(result.summary)));
   return lines.join("\n") + "\n";
 };

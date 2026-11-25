@@ -37,8 +37,21 @@ const parseOptions = (args: Args): Options => {
     throw new UsageError("Use --format table, --format json or --format csv.");
   }
   if (args.positionals.length !== 1) throw new UsageError(`Usage: ${VALIDATE_USAGE} [--date YYYY-MM-DD] [--format table|json|csv]`);
-  const date = typeof args.flags.date === "string" ? args.flags.date : today();
+  const date = args.flags.date === undefined ? today() : args.flags.date;
+  if (typeof date !== "string" || !isCalendarDate(date)) {
+    throw new UsageError("Use --date YYYY-MM-DD with a real calendar date, such as --date 2026-06-01.");
+  }
   return { feed: args.positionals[0], format: format as Format, date };
+};
+
+// YYYY-MM-DD naming a day that exists (no 2026-02-30, no month 13, no year 0).
+const isCalendarDate = (value: string) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(2000, month - 1, day));
+  date.setUTCFullYear(year);
+  return year > 0 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 };
 
 const sqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
