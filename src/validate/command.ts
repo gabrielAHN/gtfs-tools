@@ -6,6 +6,11 @@ import { buildDuckDbSessionSql } from "../duckdb/config.js";
 import { defaultExtensionStartup, runDuckDb } from "../duckdb/runner.js";
 import { extractZipEntry, findGtfsEntry, listZipEntries, validateFeed } from "../feed/zip.js";
 import { safeTerminalText } from "../output/safe-text.js";
+import { cleanupOnSignal, downloadFeed } from "../remote/download.js";
+import type { RemoteFeedSource } from "../remote/download.js";
+import { parseFeedSource, redactSource, sourceLabel } from "../remote/source.js";
+import type { FeedSource } from "../remote/source.js";
+import { downloadsDir } from "../session/metadata.js";
 import { VALIDATED_FILES, buildReport, parseValidationOutput, renderCsv, renderTable } from "./report.js";
 import type { ValidationResult } from "./report.js";
 import { VALIDATE_USAGE } from "./usage.js";
@@ -97,12 +102,9 @@ const extractFeed = async (zipPath: string, directory: string) => {
   }
 };
 
-// Validates a directory of .txt files as it is, or a zip from a new private temporary directory
-// that is always removed.
-const validateLocal = async (input: string, date: string) => {
-  const resolved = path.resolve(input);
-  if ((await stat(resolved).catch(() => undefined))?.isDirectory()) return runValidation(resolved, date);
-  const zipPath = await validateFeed(input);
+// Validates a zip from a new private temporary directory holding only the extracted files. The
+// directory is always removed afterwards.
+const validateZip = async (zipPath: string, date: string) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-validate-"));
   try {
     await extractFeed(zipPath, directory);
@@ -110,6 +112,35 @@ const validateLocal = async (input: string, date: string) => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+};
+
+// A directory of .txt files is validated as it is; a zip path gets import's checks.
+const validateLocal = async (input: string, date: string) => {
+  const resolved = path.resolve(input);
+  if ((await stat(resolved).catch(() => undefined))?.isDirectory()) return runValidation(resolved, date);
+  return validateZip(await validateFeed(input), date);
+};
+
+// Downloads exactly as import does (downloads/<random>.zip, checked to be a zip), then validates the
+// zip. The download is removed once extracted, and on failure or Ctrl-C/SIGTERM.
+const validateRemote = async (source: RemoteFeedSource, date: string) => {
+  const cleanup = cleanupOnSignal();
+  try {
+    const download = await downloadFeed(source, downloadsDir, cleanup);
+    try {
+      return await validateZip(download.file, date);
+    } finally {
+      await rm(download.file, { force: true });
+    }
+  } finally {
+    cleanup.dispose();
+  }
+};
+
+const validationFailed = (label: string, message: string) => {
+  console.error(`Validation failed: ${safeTerminalText(label)}`);
+  console.error(safeTerminalText(message));
+  return EXIT_FAILED;
 };
 
 // Runs `gtfs-tools validate` and returns its exit code.
@@ -122,16 +153,22 @@ export const commandValidate = async (args: Args): Promise<number> => {
     console.error(error.message);
     return EXIT_FAILED;
   }
-  const label = path.basename(path.resolve(options.feed));
+  // As for import, a source is only ever shown parsed and validated, or as "<scheme>://…".
+  let source: FeedSource;
   try {
-    const result = await validateLocal(options.feed, options.date);
+    source = parseFeedSource(options.feed);
+  } catch (error) {
+    return validationFailed(sourceLabel(options.feed), error instanceof Error ? error.message : String(error));
+  }
+  const label = source.kind === "local" ? path.basename(path.resolve(source.path)) : source.label;
+  try {
+    const result = source.kind === "local" ? await validateLocal(source.path, options.date) : await validateRemote(source, options.date);
     if (options.format === "json") process.stdout.write(`${JSON.stringify(buildReport(result, label, options.date), null, 2)}\n`);
     else if (options.format === "csv") process.stdout.write(renderCsv(result));
     else process.stdout.write(renderTable(result, label, options.date));
     return result.summary.some((row) => row.severity === "ERROR" && row.totalNotices > 0) ? EXIT_ERRORS : EXIT_PASSED;
   } catch (error) {
-    console.error(`Validation failed: ${safeTerminalText(label)}`);
-    console.error(safeTerminalText(error instanceof Error ? error.message : String(error)));
-    return EXIT_FAILED;
+    // DuckDB and fetch errors may echo the URL with its query string.
+    return validationFailed(label, redactSource(error instanceof Error ? error.message : String(error), options.feed));
   }
 };

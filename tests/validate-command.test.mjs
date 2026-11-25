@@ -4,6 +4,7 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import http from "node:http"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -428,6 +429,84 @@ test("an unreadable local source exits 2 with import's messages, without running
   assert.ok(broken.stderr.startsWith("Validation failed: broken.zip\n"), broken.stderr)
   assert.deepEqual(await env.invocations(), [])
   assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("a remote http source downloads as import does, is validated, and its download is removed", async (t) => {
+  const env = await setup(t)
+  const zipPath = await makeZip(env.root, "remote.zip", { "stops.txt": "stop_id\nS1\n", "routes.txt": "route_id\nR1\n", "agency.txt": "a\n" })
+  const zipBytes = await readFile(zipPath)
+  const requests = []
+  const server = http.createServer((req, res) => {
+    requests.push(req.url)
+    if (req.url.startsWith("/feeds/remote.zip")) res.writeHead(200, { "content-type": "application/zip" }).end(zipBytes)
+    else res.writeHead(404).end("missing")
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  t.after(() => new Promise((resolve) => server.close(resolve)))
+  const base = `http://127.0.0.1:${server.address().port}`
+  // An existing dataset and daemon record are left exactly as they are.
+  const statePath = path.join(env.dataRoot, "current", "state.json")
+  await mkdir(path.dirname(statePath), { recursive: true })
+  await writeFile(statePath, '{"previous":"dataset"}')
+  await writeFile(path.join(env.dataRoot, "daemon.json"), '{"pid":0}')
+  await env.respond({ summary: SUMMARY, notices: NOTICES })
+  const result = await env.cli("validate", `${base}/feeds/remote.zip?sig=querysecret0123`, "--format", "json", "--date", "2026-03-01")
+  assert.equal(result.code, 1, result.stderr)
+  assert.deepEqual(requests, ["/feeds/remote.zip?sig=querysecret0123"])
+  const report = JSON.parse(result.stdout)
+  assert.equal(report.summary.gtfsInput, `${base}/feeds/remote.zip`)
+  assert.ok(!(result.stdout + result.stderr).includes("querysecret"), "the query string leaked")
+  const [{ files, argv }] = await env.invocations()
+  assert.deepEqual(Object.keys(files), ["routes.txt", "stops.txt"])
+  assert.ok(!argv.join(" ").includes("querysecret"), "the query string reached DuckDB")
+  assert.deepEqual(await readdir(path.join(env.dataRoot, "downloads")), [], "the download is removed")
+  assert.deepEqual(await readdir(env.tmp), [])
+  assert.equal(await readFile(statePath, "utf8"), '{"previous":"dataset"}')
+  assert.equal(await readFile(path.join(env.dataRoot, "daemon.json"), "utf8"), '{"pid":0}')
+  assert.deepEqual((await readdir(path.join(env.dataRoot, "current"))).sort(), ["state.json"])
+
+  const table = await env.cli("validate", `${base}/feeds/remote.zip?sig=querysecret0123`, "--date", "2026-03-01")
+  assert.ok(table.stdout.startsWith(`Validated ${base}/feeds/remote.zip for 2026-03-01 `), table.stdout)
+
+  const missing = await env.cli("validate", `${base}/missing.zip?sig=querysecret0123`)
+  assert.equal(missing.code, 2, missing.stderr)
+  assert.ok(missing.stderr.startsWith(`Validation failed: ${base}/missing.zip\n`), missing.stderr)
+  assert.match(missing.stderr, /HTTP 404/)
+  assert.ok(!(missing.stdout + missing.stderr).includes("querysecret"), missing.stderr)
+  assert.deepEqual(await readdir(path.join(env.dataRoot, "downloads")), [])
+  assert.equal((await env.invocations()).length, 2, "no DuckDB run for a failed download")
+})
+
+test("refused remote sources exit 2 with import's refusals and print nothing of the input", async (t) => {
+  const env = await setup(t)
+  for (const [input, label, expected] of [
+    ["http://user:***@127.0.0.1:9/feeds/f.zip?sig=querysecret", "http://…", /embedded credentials/],
+    ["gs://bucket/feed.zip", "gs://…", /Unsupported import source scheme/],
+    ["s3://bucket/feed.zip?s3_secret_access_key=querysecret", "s3://…", /query string/],
+    ["s3://bucket/\u001b[31mINJECTED\nline.zip", "s3://…", /control characters/],
+  ]) {
+    const result = await env.cli("validate", input)
+    assert.equal(result.code, 2, input)
+    assert.ok(result.stderr.startsWith(`Validation failed: ${label}\n`), result.stderr)
+    assert.match(result.stderr, expected)
+    for (const leaked of ["urlpassword", "querysecret", "user:", "\u001b"]) assert.ok(!(result.stdout + result.stderr).includes(leaked), `${leaked}: ${result.stderr}`)
+  }
+  assert.deepEqual(await env.invocations(), [])
+})
+
+test("text from the feed or DuckDB is printed without terminal escape sequences", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed\u001b]0;title\u0007")
+  await writeFeedDirectory(feed)
+  await env.respond({ summary: [{ severity: "WARNING", code: "evil\u001b[2Jcode\u202e", total_notices: 1 }], notices: [] })
+  const result = await env.cli("validate", feed, "--date", "2026-03-01")
+  assert.equal(result.code, 0, result.stderr)
+  assert.doesNotMatch(result.stdout, /[\u001b\u0007\u202e]/)
+  assert.match(result.stdout, /evilcode/)
+  await env.respond({ stdout: "", stderr: "IO Error: bad \u001b[31mred\u001b[0m\n", exit: 1 })
+  const failed = await env.cli("validate", feed)
+  assert.equal(failed.code, 2)
+  assert.doesNotMatch(failed.stderr, /[\u001b\u0007]/)
 })
 
 test("usage errors exit 2 without running DuckDB", async (t) => {
