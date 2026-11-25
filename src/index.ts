@@ -60,6 +60,7 @@ import { IMPORT_USAGE, parseFeedSource, redactSource, sourceLabel } from "./remo
 import type { FeedSource } from "./remote/source.js";
 import { safeTerminalText } from "./output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "./remote/download.js";
+import { commandValidate } from "./validate/command.js";
 
 import { packageRoot } from "./package-root.js";
 
@@ -3328,6 +3329,10 @@ const main = async () => {
 
   if (args.command === "import") {
     await commandImport(args);
+    return;
+  }
+  if (args.command === "validate") {
+    process.exitCode = await commandValidate(args);
     return;
   }
   if (args.command === "status") {

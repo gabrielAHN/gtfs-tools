@@ -1,5 +1,6 @@
 import { getFlagString } from "../args.js";
 import { IMPORT_USAGE } from "../remote/source.js";
+import { VALIDATE_USAGE } from "../validate/usage.js";
 
 // The command name in every help text.
 const CLI = "gtfs-tools";
@@ -123,6 +124,47 @@ const commandHelp: Record<string, string> = {
     ${CLI} import /path/to/feed.zip
     ${CLI} import https://example.com/gtfs/feed.zip
     ${CLI} import s3://my-bucket/gtfs/feed.zip`,
+
+  validate: `${VALIDATE_USAGE} [flags]
+
+  Validate a GTFS feed with the gtfs DuckDB extension's gtfs_validate pragma and
+  print a summary by rule. The rules port the MobilityData GTFS validator's rules
+  for the 8 files the extension imports: stops.txt, pathways.txt, routes.txt,
+  trips.txt, stop_times.txt, shapes.txt, calendar.txt and calendar_dates.txt.
+  Other files (agency, feed_info, frequencies, transfers, fares, flex, …) are not
+  validated. Validation never changes the imported dataset or the dashboard.
+
+  Arguments (one is required):
+    <feed.zip>        Path to a local GTFS zip file
+    <directory>       Path to a directory holding the GTFS .txt files
+    <https://…>       HTTP(S) URL of a GTFS zip, downloaded as for import
+    <s3://…>          S3 object (also s3a:// and s3n://), read through DuckDB
+    <r2://…>          Cloudflare R2 object, read through DuckDB
+  Remote feeds download and authenticate exactly as for import (${CLI} h import).
+
+  Flags:
+    --date YYYY-MM-DD       Date the feed is validated for (default: today)
+    --format table          Summary table by rule (default)
+    --format json           A report.json shaped like the MobilityData validator's:
+                            summary, then notices with every notice of each code
+    --format csv            One row per notice:
+                            code,severity,filename,csv_row_number,notice
+
+  Exit codes:
+    0  No ERROR notice (warnings and infos only, or no notices)
+    1  At least one ERROR notice
+    2  Validation could not run (usage error, unreadable source, download or
+       DuckDB failure)
+
+  Validation needs the gtfs extension 1.1.0 or later. With the community
+  repository, update an older one with duckdb -c "UPDATE EXTENSIONS (gtfs)";
+  ${CLI} never updates or reinstalls it itself.
+
+  Examples:
+    ${CLI} validate ./feed.zip
+    ${CLI} validate ./feed/ --date 2026-06-01
+    ${CLI} validate https://example.com/gtfs/feed.zip --format json > report.json
+    ${CLI} validate s3://my-bucket/gtfs/feed.zip --format csv > notices.csv`,
 
   export: `${CLI} export [flags]
 
@@ -762,6 +804,10 @@ Import & Status:
   status                             Show dataset info and session state
   tables                             List available DuckDB tables
 
+Validate:
+  validate <feed.zip|directory|https://…|s3://…|r2://…>
+                                     Validate a feed (exit 1 on errors); --format json|csv
+
 Data:
   stations [filters]                 Browse/lookup stations
   stops [filters]                    Browse/lookup stops
@@ -823,6 +869,11 @@ export const printExamples = () => {
   ${CLI} route "Red Line"
   ${CLI} trips --route R1 --data
   ${CLI} trip trip-123 --data
+
+Validate:
+  ${CLI} validate ./feed.zip
+  ${CLI} validate ./feed.zip --date 2026-06-01 --format json
+  ${CLI} validate https://example.com/gtfs/feed.zip --format csv
 
 Lookup & dashboard:
   ${CLI} station "Park Street"
