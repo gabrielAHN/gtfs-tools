@@ -4,6 +4,21 @@ All notable changes to GTFS Tools (`@gabrielahn/gtfs-tools`) are documented in t
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each version lists its changes under Added,
 Changed, Removed, Fixed and Security, and its GitHub release notes are that section.
 
+## [Unreleased]
+
+### Added
+- `validate <feed.zip|directory|https://…|s3://…|r2://…>` validates a feed with the gtfs DuckDB extension's
+  `gtfs_validate` pragma, which ports the MobilityData GTFS validator's rules for the 8 files the extension
+  imports (stops, pathways, routes, trips, stop_times, shapes, calendar, calendar_dates). It prints a summary
+  by rule, or with `--format json` a report shaped like the validator's `report.json` (every notice of each
+  code) and with `--format csv` one row per notice. `--date YYYY-MM-DD` sets the date validated for
+  (default: today).
+- `validate` exits 0 without ERROR notices, 1 with at least one and 2 when validation could not run. It
+  needs the gtfs extension 1.1.0 or later and says how to update an older one; it never updates it itself.
+- Remote feeds download and authenticate as for `import`. A zip is read from a private temporary directory
+  that is removed afterwards, also on Ctrl-C or SIGTERM. Validation never changes the imported dataset or
+  the dashboard.
+
 ## [1.5.5] - 2026-11-05
 
 ### Changed
