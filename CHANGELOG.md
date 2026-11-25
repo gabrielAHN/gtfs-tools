@@ -18,6 +18,10 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 - Remote feeds download and authenticate as for `import`. A zip is read from a private temporary directory
   that is removed afterwards, also on Ctrl-C or SIGTERM. Validation never changes the imported dataset or
   the dashboard.
+- Zips are read as the official validator reads them: only files at the root, names compared without case.
+  Files in a folder of the zip are listed on stderr and not read; a zip with two entries of the same name is
+  refused. Extraction stops before it would leave less than 512 MiB free on the disk. A directory whose
+  path has a control character is refused.
 
 ## [1.5.5] - 2026-11-05
 

@@ -141,6 +141,9 @@ const commandHelp: Record<string, string> = {
     <s3://…>          S3 object (also s3a:// and s3n://), read through DuckDB
     <r2://…>          Cloudflare R2 object, read through DuckDB
   Remote feeds download and authenticate exactly as for import (${CLI} h import).
+  As the official validator does, only files at a zip's root are read, with
+  names compared without case; files in a folder of the zip are listed on
+  stderr and not read.
 
   Flags:
     --date YYYY-MM-DD       Date the feed is validated for (default: today)
