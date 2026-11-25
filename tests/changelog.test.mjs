@@ -13,16 +13,23 @@ const changelog = readFileSync(path.join(root, "CHANGELOG.md"), "utf8")
 const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"))
 const script = path.join(root, ".github", "scripts", "release-notes.mjs")
 
-const sections = () => {
+// Every section, the optional "## [Unreleased]" one (first, undated, never released) included.
+const allSections = () => {
   const out = []
   for (const line of changelog.split("\n")) {
     const match = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/.exec(line)
     if (match) out.push({ version: match[1], date: match[2], lines: [] })
-    else if (line.startsWith("## ")) assert.fail(`CHANGELOG heading "${line}" is not "## [x.y.z] - YYYY-MM-DD"`)
+    else if (line === "## [Unreleased]") {
+      assert.equal(out.length, 0, "[Unreleased] is the first section")
+      out.push({ version: "Unreleased", date: null, lines: [] })
+    } else if (line.startsWith("## ")) assert.fail(`CHANGELOG heading "${line}" is not "## [x.y.z] - YYYY-MM-DD" or "## [Unreleased]"`)
     else if (out.length && !/^\[[^\]]+\]: /.test(line)) out.at(-1).lines.push(line)
   }
   return out
 }
+
+// The released versions.
+const sections = () => allSections().filter(({ date }) => date !== null)
 
 const compare = (a, b) => {
   const [x, y] = [a, b].map((v) => v.split(".").map(Number))
@@ -36,7 +43,7 @@ test("every CHANGELOG version uses the same categories, in order, with only bull
     assert.ok(compare(list[i - 1].version, list[i].version) > 0, `${list[i - 1].version} before ${list[i].version}`)
     assert.ok(list[i - 1].date >= list[i].date, `${list[i - 1].version} is dated after ${list[i].version}`)
   }
-  for (const { version, lines } of list) {
+  for (const { version, lines } of allSections()) {
     const headings = lines.filter((line) => line.startsWith("#"))
     assert.ok(headings.length > 0, `${version} has categories`)
     const names = headings.map((heading) => heading.replace(/^### /, ""))
@@ -80,6 +87,10 @@ test("release notes are the version's CHANGELOG section plus an install line", (
 
   const cli = execFileSync(process.execPath, [script, pkg.version], { cwd: root, encoding: "utf8" })
   assert.equal(cli, releaseNotes(changelog, pkg.version))
+  // An [Unreleased] section is never part of a released version's notes.
+  const unreleased = allSections().find(({ date }) => date === null)
+  const first = unreleased?.lines.find((line) => line.startsWith("- "))
+  if (first) assert.ok(!cli.includes(first), "the [Unreleased] items are not in the current version's notes")
 })
 
 test("release notes refuse a missing version, an empty section and an unknown heading", () => {

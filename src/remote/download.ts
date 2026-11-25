@@ -153,9 +153,9 @@ const validateZip = async (source: RemoteFeedSource, file: string) => {
 
 export type SignalCleanup = { add: (file: string) => void; dispose: () => void };
 
-// Until disposed, Ctrl-C or SIGTERM kills any running DuckDB child (an s3/r2 download or the
-// import), removes the added files synchronously, uninstalls the handlers and re-raises the signal,
-// so the CLI dies by it and the parent shell sees a signal death.
+// Until disposed, Ctrl-C or SIGTERM kills any running DuckDB child (an s3/r2 download, the import
+// or a validation), removes the added files and directories synchronously, uninstalls the handlers
+// and re-raises the signal, so the CLI dies by it and the parent shell sees a signal death.
 export const cleanupOnSignal = (): SignalCleanup => {
   const files = new Set<string>();
   const signals = [["SIGINT", 130], ["SIGTERM", 143]] as const;
@@ -165,7 +165,7 @@ export const cleanupOnSignal = (): SignalCleanup => {
         killRunningChildren();
         for (const file of files) {
           try {
-            rmSync(file, { force: true });
+            rmSync(file, { recursive: true, force: true });
           } catch {}
         }
       } finally {

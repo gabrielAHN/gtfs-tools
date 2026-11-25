@@ -4,6 +4,34 @@ All notable changes to GTFS Tools (`@gabrielahn/gtfs-tools`) are documented in t
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Each version lists its changes under Added,
 Changed, Removed, Fixed and Security, and its GitHub release notes are that section.
 
+## [Unreleased]
+
+### Added
+- `validate <feed.zip|directory|https://…|s3://…|r2://…>` validates a feed with the gtfs DuckDB extension's
+  `gtfs_validate` pragma, which ports the MobilityData GTFS validator's rules for the 8 files the extension
+  imports (stops, pathways, routes, trips, stop_times, shapes, calendar, calendar_dates). It prints a summary
+  by rule, or with `--format json` a report shaped like the validator's `report.json` (every notice of each
+  code) and with `--format csv` one row per notice. `--date YYYY-MM-DD` sets the date validated for
+  (default: today).
+- `validate` exits 0 without ERROR notices, 1 with at least one and 2 when validation could not run. It
+  needs the gtfs extension 1.1.0 or later and says how to update an older one; it never updates it itself.
+- Remote feeds download and authenticate as for `import`. A zip is read from a private temporary directory
+  that is removed afterwards, also on Ctrl-C or SIGTERM. Validation never changes the imported dataset or
+  the dashboard.
+- Zips are read as the official validator reads them: only files at the root, names compared without case
+  (the first of two such entries is read). Files in a folder of the zip are listed on stderr and not read,
+  and a GTFS file in a folder is reported as the validator's `invalid_input_files_in_subfolder` ERROR. A zip
+  with two entries of the same name is refused. With Node.js 18.15 or later, extraction stops before it
+  would leave less than 512 MiB free on the disk. A directory whose path has a control character is
+  refused; one whose path has `*`, `?` or `[`, which DuckDB reads as a file pattern, is validated through
+  links in a temporary directory.
+
+### Fixed
+- `import` reads a local zip whose name has `*`, `?` or `[` itself. `unzip` read such a name as a pattern of
+  zip names, so `feed[1].zip` read `feed1.zip`, and `feed*.zip` read every zip it matched, one after the
+  other. A GTFS file whose path in the zip has `*`, `?`, `[` or `\`, or starts with `-`, such as
+  `[a]/stops.txt`, is read as that entry alone too: `unzip` read the path as a pattern or as an option.
+
 ## [1.5.5] - 2026-11-05
 
 ### Changed

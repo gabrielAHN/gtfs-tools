@@ -59,6 +59,36 @@ clears it, as for local files.
 Never put credentials in a URL. URLs with a user name or password are refused, and so is an unencoded
 `@` in an http(s) path: write it as `%40`.
 
+## Validate a feed
+
+`gtfs-tools validate <feed.zip|directory|https://…|s3://…|r2://…>` checks a feed with the gtfs DuckDB
+extension's `gtfs_validate` pragma and prints a summary by rule:
+
+```bash
+gtfs-tools validate ./feed.zip                                   # summary table
+gtfs-tools validate ./feed/ --date 2026-06-01                     # a directory of .txt files
+gtfs-tools validate https://example.com/gtfs/feed.zip --format json > report.json
+gtfs-tools validate s3://my-bucket/gtfs/feed.zip --format csv > notices.csv
+```
+
+- **Rules:** a port of the [MobilityData GTFS validator](https://github.com/MobilityData/gtfs-validator)'s
+  rules for the 8 files the extension imports: stops, pathways, routes, trips, stop_times, shapes, calendar
+  and calendar_dates. Other files (agency, feed_info, frequencies, transfers, fares, flex, …) are not
+  validated.
+- **Output:** `--format json` is shaped like the validator's `report.json`, with every notice of each code;
+  `--format csv` has one row per notice. `--date` sets the date the feed is validated for (default: today).
+- **Exit codes:** it exits 0 without ERROR notices, 1 with at least one, and 2 when validation could not run.
+- **Sources:** remote feeds download and authenticate as for `import`. Validation never changes the imported
+  dataset or the dashboard.
+- **Zips:** as the official validator does, only files at the zip's root are read, and names are compared
+  without case (`Stops.txt` is `stops.txt`; of two such entries, the first in the zip is read). Unlike
+  `import`, files in a folder of the zip are not read: they are listed on stderr, and a GTFS file in a folder
+  is the validator's `invalid_input_files_in_subfolder` ERROR. A zip with two entries of the same name is
+  refused. With Node.js 18.15 or later, extraction stops before it would leave less than 512 MiB free on the
+  temporary directory's disk.
+- **Extension:** it needs the gtfs extension 1.1.0 or later. Update an older one from the community
+  repository with `duckdb -c "UPDATE EXTENSIONS (gtfs)"`; the CLI never updates it itself.
+
 ## Dashboard
 
 The dashboard is the CLI mode of the [GTFS Viz](https://github.com/gabrielAHN/gtfs-viz) web app, served
