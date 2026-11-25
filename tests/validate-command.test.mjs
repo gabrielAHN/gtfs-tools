@@ -26,7 +26,7 @@ const run = (command, args, options = {}) =>
 // when the SQL holds a gtfs_validate PRAGMA, the files of the directory it names (read while it runs).
 // Then it prints FAKE_DUCKDB_STDOUT / FAKE_DUCKDB_STDERR (file contents) and exits FAKE_DUCKDB_EXIT.
 const FAKE_DUCKDB = `#!/usr/bin/env node
-import { appendFileSync, readFileSync, readdirSync } from "node:fs"
+import { appendFileSync, readFileSync, readdirSync, statSync } from "node:fs"
 const argv = process.argv.slice(2)
 let stdin = ""
 try { stdin = readFileSync(0, "utf8") } catch {}
@@ -34,8 +34,14 @@ const sql = argv[argv.indexOf("-c") + 1] ?? ""
 const match = /gtfs_validate\\('((?:[^']|'')*)'/.exec(sql)
 const directory = match ? match[1].replaceAll("''", "'") : undefined
 let files
-if (directory) { try { files = readdirSync(directory).sort() } catch (error) { files = String(error) } }
-appendFileSync(process.env.FAKE_DUCKDB_LOG, JSON.stringify({ argv, stdin, directory, files }) + "\\n")
+let mode
+if (directory) {
+  try {
+    files = Object.fromEntries(readdirSync(directory).sort().map((name) => [name, readFileSync(directory + "/" + name, "utf8")]))
+    mode = statSync(directory).mode & 0o777
+  } catch (error) { files = String(error) }
+}
+appendFileSync(process.env.FAKE_DUCKDB_LOG, JSON.stringify({ argv, stdin, directory, files, mode }) + "\\n")
 const read = (name) => (process.env[name] ? readFileSync(process.env[name], "utf8") : "")
 process.stdout.write(read("FAKE_DUCKDB_STDOUT"))
 process.stderr.write(read("FAKE_DUCKDB_STDERR"))
@@ -146,7 +152,8 @@ test("a directory source runs gtfs_validate on it in one in-memory DuckDB with t
   const invocations = await env.invocations()
   assert.equal(invocations.length, 1, "one DuckDB process")
   const [{ argv, files }] = invocations
-  assert.deepEqual(files, ["routes.txt", "stops.txt"], "the directory itself is validated")
+  assert.deepEqual(Object.keys(files), ["routes.txt", "stops.txt"], "the directory itself is validated")
+  assert.equal(invocations[0].directory, feed)
   assert.deepEqual(argv.slice(argv.indexOf("-c") - 1, argv.indexOf("-c")), [":memory:"])
   assert.ok(argv.includes("-json"), argv.join(" "))
   assert.ok(argv.includes("-bail"), argv.join(" "))
@@ -244,6 +251,82 @@ test("--date must be a real YYYY-MM-DD date and defaults to today in local time"
     assert.ok(date === before || date === after, `${zone}: ${sql}`)
     assert.ok(local.stdout.startsWith(`Validated feed for ${date} `), local.stdout)
   }
+})
+
+const VALIDATED_FILES = ["stops.txt", "pathways.txt", "routes.txt", "trips.txt", "stop_times.txt", "shapes.txt", "calendar.txt", "calendar_dates.txt"]
+
+// A zip holding `entries` ({ "<path in zip>": "<content>" }).
+const makeZip = async (root, name, entries) => {
+  const staging = await mkdtemp(path.join(root, "zip-staging-"))
+  for (const [entry, content] of Object.entries(entries)) {
+    await mkdir(path.dirname(path.join(staging, entry)), { recursive: true })
+    await writeFile(path.join(staging, entry), content)
+  }
+  const zipPath = path.join(root, name)
+  const zipped = await run("zip", ["-q", "-r", zipPath, ...Object.keys(entries)], { cwd: staging })
+  assert.equal(zipped.code, 0, zipped.stderr)
+  await rm(staging, { recursive: true, force: true })
+  return zipPath
+}
+
+test("a zip is validated from a private temporary directory holding only the 8 files, removed afterwards", async (t) => {
+  const env = await setup(t)
+  const entries = Object.fromEntries(VALIDATED_FILES.map((file) => [file === "trips.txt" || file === "shapes.txt" ? `gtfs/${file}` : file, `${file} content\n`]))
+  Object.assign(entries, { "agency.txt": "agency\n", "feed_info.txt": "feed\n", "gtfs/frequencies.txt": "f\n", "notes/readme.md": "x\n", "stops.txt.bak": "old\n" })
+  const zipPath = await makeZip(env.root, "my feed.zip", entries)
+  await env.respond({ summary: SUMMARY, notices: NOTICES })
+  const result = await env.cli("validate", zipPath, "--date", "2026-03-01")
+  assert.equal(result.code, 1, result.stderr)
+  assert.ok(result.stdout.startsWith("Validated my feed.zip for 2026-03-01 "), result.stdout)
+  const [{ directory, files, mode }] = await env.invocations()
+  assert.equal(path.dirname(directory), env.tmp, "a new directory in the system temporary directory")
+  assert.equal(mode, 0o700, "private")
+  assert.deepEqual(Object.keys(files).sort(), [...VALIDATED_FILES].sort())
+  for (const file of VALIDATED_FILES) assert.equal(files[file], `${file} content\n`, file)
+  assert.deepEqual(await readdir(env.tmp), [], "the temporary directory is removed")
+  assert.equal(await readdir(path.join(env.dataRoot, "current")).catch((error) => error.code), "ENOENT", "no current dataset")
+})
+
+test("a zip without stops.txt is still validated: the validator reports missing files", async (t) => {
+  const env = await setup(t)
+  const zipPath = await makeZip(env.root, "nostops.zip", { "routes.txt": "route_id\nR1\n" })
+  await env.respond({ summary: [{ severity: "ERROR", code: "missing_required_file", total_notices: 1 }], notices: [notice("missing_required_file", "ERROR", "stops.txt", null)] })
+  const result = await env.cli("validate", zipPath, "--date", "2026-03-01")
+  assert.equal(result.code, 1, result.stderr)
+  assert.match(result.stdout, /missing_required_file/)
+  const [{ files }] = await env.invocations()
+  assert.deepEqual(Object.keys(files), ["routes.txt"])
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("when DuckDB fails, validation exits 2 and still removes the temporary directory", async (t) => {
+  const env = await setup(t)
+  const zipPath = await makeZip(env.root, "feed.zip", { "stops.txt": "stop_id\nS1\n" })
+  await env.respond({ stdout: "", stderr: "IO Error: disk on fire\n", exit: 1 })
+  const result = await env.cli("validate", zipPath)
+  assert.equal(result.code, 2, result.stderr)
+  assert.ok(result.stderr.startsWith("Validation failed: feed.zip\n"), result.stderr)
+  assert.match(result.stderr, /disk on fire/)
+  assert.equal(result.stdout, "")
+  assert.equal((await env.invocations()).length, 1)
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("an unreadable local source exits 2 with import's messages, without running DuckDB", async (t) => {
+  const env = await setup(t)
+  await writeFile(path.join(env.root, "notes.txt"), "not a zip")
+  const missing = await env.cli("validate", "missing/feed.zip")
+  assert.equal(missing.code, 2)
+  assert.equal(missing.stderr, "Validation failed: feed.zip\nGTFS file not found: missing/feed.zip\n")
+  const notZip = await env.cli("validate", "notes.txt")
+  assert.equal(notZip.code, 2)
+  assert.equal(notZip.stderr, "Validation failed: notes.txt\nRequires a .zip file\n")
+  await writeFile(path.join(env.root, "broken.zip"), "PK\u0003\u0004 truncated")
+  const broken = await env.cli("validate", "broken.zip")
+  assert.equal(broken.code, 2)
+  assert.ok(broken.stderr.startsWith("Validation failed: broken.zip\n"), broken.stderr)
+  assert.deepEqual(await env.invocations(), [])
+  assert.deepEqual(await readdir(env.tmp), [])
 })
 
 test("usage errors exit 2 without running DuckDB", async (t) => {

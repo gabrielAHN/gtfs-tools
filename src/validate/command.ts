@@ -1,10 +1,12 @@
-import { stat } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { Args } from "../args.js";
 import { buildDuckDbSessionSql } from "../duckdb/config.js";
 import { defaultExtensionStartup, runDuckDb } from "../duckdb/runner.js";
+import { extractZipEntry, findGtfsEntry, listZipEntries, validateFeed } from "../feed/zip.js";
 import { safeTerminalText } from "../output/safe-text.js";
-import { parseValidationOutput, renderTable } from "./report.js";
+import { VALIDATED_FILES, parseValidationOutput, renderTable } from "./report.js";
 import type { ValidationResult } from "./report.js";
 import { VALIDATE_USAGE } from "./usage.js";
 
@@ -68,6 +70,31 @@ const runValidation = async (directory: string, date: string): Promise<Validatio
   return parseValidationOutput(stdout);
 };
 
+// Extracts the files the rules cover, found as `import` finds them, into `directory`. A missing file
+// is left out: the validator reports missing files itself.
+const extractFeed = async (zipPath: string, directory: string) => {
+  const entries = await listZipEntries(zipPath);
+  for (const file of VALIDATED_FILES) {
+    const entry = findGtfsEntry(entries, file);
+    if (entry) await extractZipEntry(zipPath, entry, path.join(directory, file));
+  }
+};
+
+// Validates a directory of .txt files as it is, or a zip from a new private temporary directory
+// that is always removed.
+const validateLocal = async (input: string, date: string) => {
+  const resolved = path.resolve(input);
+  if ((await stat(resolved).catch(() => undefined))?.isDirectory()) return runValidation(resolved, date);
+  const zipPath = await validateFeed(input);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-validate-"));
+  try {
+    await extractFeed(zipPath, directory);
+    return await runValidation(directory, date);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+};
+
 // Runs `gtfs-tools validate` and returns its exit code.
 export const commandValidate = async (args: Args): Promise<number> => {
   let options: Options;
@@ -78,11 +105,9 @@ export const commandValidate = async (args: Args): Promise<number> => {
     console.error(error.message);
     return EXIT_FAILED;
   }
-  const directory = path.resolve(options.feed);
-  const label = path.basename(directory);
+  const label = path.basename(path.resolve(options.feed));
   try {
-    if (!(await stat(directory)).isDirectory()) throw new Error(`Not a directory: ${options.feed}`);
-    const result = await runValidation(directory, options.date);
+    const result = await validateLocal(options.feed, options.date);
     process.stdout.write(renderTable(result, label, options.date));
     return result.summary.some((row) => row.severity === "ERROR" && row.totalNotices > 0) ? EXIT_ERRORS : EXIT_PASSED;
   } catch (error) {

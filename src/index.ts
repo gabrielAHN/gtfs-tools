@@ -1,4 +1,4 @@
-import { createWriteStream, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { access, copyFile, cp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -61,6 +61,7 @@ import type { FeedSource } from "./remote/source.js";
 import { safeTerminalText } from "./output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "./remote/download.js";
 import { commandValidate } from "./validate/command.js";
+import { extractZipEntry, findGtfsEntry, listZipEntries, validateFeed } from "./feed/zip.js";
 
 import { packageRoot } from "./package-root.js";
 
@@ -169,35 +170,6 @@ const escapeSql = (value: string) => value.replace(/'/g, "''");
 const sqlString = (value: string) => `'${escapeSql(value)}'`;
 
 const refreshPathwayNetwork = refreshDownloadedDataset;
-
-const extractZipEntry = (zipPath: string, entry: string, targetPath: string) =>
-  new Promise<void>((resolve, reject) => {
-    const child = spawn("unzip", ["-p", zipPath, entry], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const output = createWriteStream(targetPath);
-    const stderr: Buffer[] = [];
-    child.stdout.pipe(output);
-    child.stderr.on("data", (chunk) =>
-      stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
-    );
-    child.on("error", reject);
-    output.on("error", reject);
-    child.on("close", (code) => {
-      output.end();
-      if (code === 0) resolve();
-      else
-        reject(new Error(Buffer.concat(stderr).toString("utf8") || `Failed to extract ${entry}`));
-    });
-  });
-
-const listZipEntries = async (zipPath: string) => {
-  const { stdout } = await runProcess("unzip", ["-Z1", zipPath]);
-  return stdout.split(/\r?\n/).filter(Boolean);
-};
-
-const findGtfsEntry = (entries: string[], fileName: string) =>
-  entries.find((e) => e === fileName || e.endsWith(`/${fileName}`));
 
 const numberOrUndefined = (value: unknown) => {
   const n = Number(value);
@@ -341,17 +313,6 @@ const resolveStationNode = async (dbPath: string, stationId: string, input: Sele
     stopId: String(row.stop_id),
     stopName: typeof row.stop_name === "string" ? row.stop_name : undefined,
   };
-};
-
-const validateFeed = async (feedPath: string) => {
-  const resolved = path.resolve(feedPath);
-  await access(resolved).catch(() => {
-    throw new Error(`GTFS file not found: ${feedPath}`);
-  });
-  const s = await stat(resolved);
-  if (!s.isFile()) throw new Error(`Not a file: ${feedPath}`);
-  if (!resolved.toLowerCase().endsWith(".zip")) throw new Error("Requires a .zip file");
-  return resolved;
 };
 
 // What the dataset records about its source: never a query string, fragment or URL credentials.
