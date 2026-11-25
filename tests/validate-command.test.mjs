@@ -49,7 +49,8 @@ else {
 const read = (name) => (process.env[name] ? readFileSync(process.env[name], "utf8") : "")
 process.stdout.write(read("FAKE_DUCKDB_STDOUT"))
 process.stderr.write(read("FAKE_DUCKDB_STDERR"))
-process.exit(Number(process.env.FAKE_DUCKDB_EXIT || 0))
+// Not process.exit(): it can cut a large write to a pipe short.
+process.exitCode = Number(process.env.FAKE_DUCKDB_EXIT || 0)
 }
 `
 
@@ -172,8 +173,14 @@ test("a directory source runs gtfs_validate on it in one in-memory DuckDB with t
   assert.deepEqual(cmds, ["INSTALL gtfs FROM community", "LOAD gtfs"])
   const sql = pragmaSql(invocations[0])
   assert.ok(sql.includes(`PRAGMA gtfs_validate('${feed.replaceAll("'", "''")}', '2026-03-01');`), sql)
-  assert.match(sql, /SELECT code, severity, filename, csv_row_number, notice(::VARCHAR AS notice)? FROM gtfs_validation_notices/)
-  assert.ok(sql.indexOf("PRAGMA gtfs_validate") < sql.indexOf("FROM gtfs_validation_notices"), sql)
+  // The table prints only the summary, so it does not fetch the notices; json and csv do, after the PRAGMA.
+  assert.doesNotMatch(sql, /gtfs_validation_notices/)
+  for (const format of ["json", "csv"]) {
+    await env.cli("validate", feed, "--date", "2026-03-01", "--format", format)
+    const formatSql = pragmaSql((await env.invocations()).at(-1))
+    assert.match(formatSql, /SELECT code, severity, filename, csv_row_number, notice(::VARCHAR AS notice)? FROM gtfs_validation_notices/)
+    assert.ok(formatSql.indexOf("PRAGMA gtfs_validate") < formatSql.indexOf("FROM gtfs_validation_notices"), formatSql)
+  }
 })
 
 test("GTFS_EXTENSION_REPOSITORY selects where gtfs installs from", async (t) => {
@@ -383,12 +390,13 @@ const makeZip = async (root, name, entries) => {
 
 test("a zip is validated from a private temporary directory holding only the 8 files, removed afterwards", async (t) => {
   const env = await setup(t)
-  const entries = Object.fromEntries(VALIDATED_FILES.map((file) => [file === "trips.txt" || file === "shapes.txt" ? `gtfs/${file}` : file, `${file} content\n`]))
+  const entries = Object.fromEntries(VALIDATED_FILES.map((file) => [file, `${file} content\n`]))
   Object.assign(entries, { "agency.txt": "agency\n", "feed_info.txt": "feed\n", "gtfs/frequencies.txt": "f\n", "notes/readme.md": "x\n", "stops.txt.bak": "old\n" })
   const zipPath = await makeZip(env.root, "my feed.zip", entries)
   await env.respond({ summary: SUMMARY, notices: NOTICES })
   const result = await env.cli("validate", zipPath, "--date", "2026-03-01")
   assert.equal(result.code, 1, result.stderr)
+  assert.equal(result.stderr, "")
   assert.ok(result.stdout.startsWith("Validated my feed.zip for 2026-03-01 "), result.stdout)
   const [{ directory, files, mode }] = await env.invocations()
   assert.equal(path.dirname(directory), env.tmp, "a new directory in the system temporary directory")
@@ -397,6 +405,177 @@ test("a zip is validated from a private temporary directory holding only the 8 f
   for (const file of VALIDATED_FILES) assert.equal(files[file], `${file} content\n`, file)
   assert.deepEqual(await readdir(env.tmp), [], "the temporary directory is removed")
   assert.equal(await readdir(path.join(env.dataRoot, "current")).catch((error) => error.code), "ENOENT", "no current dataset")
+})
+
+// A zip written byte by byte (stored, not compressed), for entry names the zip tool will not write:
+// duplicates, "../" and "/" paths. `entries` is a list of [name, content].
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+  return c >>> 0
+})
+const crc32 = (bytes) => {
+  let c = 0xffffffff
+  for (const byte of bytes) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8)
+  return (c ^ 0xffffffff) >>> 0
+}
+const writeRawZip = async (root, name, entries) => {
+  const locals = []
+  const centrals = []
+  let offset = 0
+  for (const [entry, content] of entries) {
+    const nameBytes = Buffer.from(entry)
+    const data = Buffer.from(content)
+    const header = Buffer.alloc(30)
+    header.writeUInt32LE(0x04034b50, 0)
+    header.writeUInt16LE(20, 4)
+    header.writeUInt16LE(0x21, 12)
+    header.writeUInt32LE(crc32(data), 14)
+    header.writeUInt32LE(data.length, 18)
+    header.writeUInt32LE(data.length, 22)
+    header.writeUInt16LE(nameBytes.length, 26)
+    const central = Buffer.alloc(46)
+    central.writeUInt32LE(0x02014b50, 0)
+    central.writeUInt16LE(20, 4)
+    central.writeUInt16LE(20, 6)
+    central.writeUInt16LE(0x21, 14)
+    central.writeUInt32LE(crc32(data), 16)
+    central.writeUInt32LE(data.length, 20)
+    central.writeUInt32LE(data.length, 24)
+    central.writeUInt16LE(nameBytes.length, 28)
+    central.writeUInt32LE(offset, 42)
+    locals.push(header, nameBytes, data)
+    centrals.push(central, nameBytes)
+    offset += header.length + nameBytes.length + data.length
+  }
+  const directory = Buffer.concat(centrals)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(entries.length, 8)
+  end.writeUInt16LE(entries.length, 10)
+  end.writeUInt32LE(directory.length, 12)
+  end.writeUInt32LE(offset, 16)
+  const zipPath = path.join(root, name)
+  await writeFile(zipPath, Buffer.concat([...locals, directory, end]))
+  return zipPath
+}
+
+test("a zip is read as the official validator reads it: root entries only, names compared without case", async (t) => {
+  const env = await setup(t)
+  const zipPath = await writeRawZip(env.root, "layout.zip", [
+    ["old/stops.txt", "decoy in a folder\n"],
+    ["stops.txt", "root stops\n"],
+    ["Routes.txt", "routes in another case\n"],
+    ["../trips.txt", "outside\n"],
+    ["/abs/stop_times.txt", "absolute\n"],
+    ["*/shapes.txt", "a wildcard folder\n"],
+    ["[a]/calendar.txt", "a pattern folder\n"],
+    ["calendar_dates.txt", "root dates\n"],
+  ])
+  await env.respond()
+  const result = await env.cli("validate", zipPath)
+  assert.equal(result.code, 0, result.stderr)
+  const [{ files }] = await env.invocations()
+  assert.deepEqual(files, { "calendar_dates.txt": "root dates\n", "routes.txt": "routes in another case\n", "stops.txt": "root stops\n" })
+  assert.equal(
+    result.stderr,
+    "Not validated, in a folder of the zip (the official validator reads only its root): old/stops.txt, ../trips.txt, /abs/stop_times.txt, */shapes.txt, [a]/calendar.txt\n",
+  )
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("an extraction stops past its byte limit, and resolves only once the file is written", async (t) => {
+  const root = path.resolve(await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-zip-")))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const module = path.join(root, "zip.mjs")
+  await build({ entryPoints: [new URL("../src/feed/zip.ts", import.meta.url).pathname], outfile: module, bundle: true, platform: "node", format: "esm", target: "node18" })
+  const { extractZipEntry } = await import(module)
+  const zipPath = await writeRawZip(root, "big.zip", [["stops.txt", "x".repeat(200000)]])
+  const target = path.join(root, "stops.txt")
+  assert.equal(await extractZipEntry(zipPath, "stops.txt", target), 200000)
+  assert.equal((await readFile(target, "utf8")).length, 200000, "written in full when the promise resolves")
+  await assert.rejects(extractZipEntry(zipPath, "stops.txt", path.join(root, "capped.txt"), 1000), /^Error: Not enough free disk space to extract stops\.txt/)
+})
+
+test("a zip with two entries of the same name exits 2 without running DuckDB", async (t) => {
+  const env = await setup(t)
+  const zipPath = await writeRawZip(env.root, "dup.zip", [
+    ["stops.txt", "stop_id\nS1\n"],
+    ["routes.txt", "route_id\nR1\n"],
+    ["stops.txt", "stop_id\nS2\n"],
+  ])
+  await env.respond()
+  const result = await env.cli("validate", zipPath)
+  assert.equal(result.code, 2)
+  assert.equal(result.stderr, "Validation failed: dup.zip\nThe zip has 2 entries named stops.txt: remove the extra ones and validate again.\n")
+  assert.deepEqual(await env.invocations(), [])
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("a directory whose file names have another case is validated through lowercase links", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await mkdir(feed)
+  await writeFile(path.join(feed, "Stops.txt"), "stop_id\nS1\n")
+  await writeFile(path.join(feed, "routes.txt"), "route_id\nR1\n")
+  await env.respond()
+  const result = await env.cli("validate", feed)
+  assert.equal(result.code, 0, result.stderr)
+  const [{ directory, files }] = await env.invocations()
+  assert.equal(path.dirname(directory), env.tmp)
+  assert.deepEqual(files, { "routes.txt": "route_id\nR1\n", "stops.txt": "stop_id\nS1\n" })
+  assert.deepEqual(await readdir(env.tmp), [], "the links are removed")
+  assert.deepEqual((await readdir(feed)).sort(), ["Stops.txt", "routes.txt"], "the feed is untouched")
+})
+
+test("a directory path with a control character exits 2 without running DuckDB", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "x\nCOPY (SELECT 42 AS pwned) TO 'pwned.csv';\n--")
+  await writeFeedDirectory(feed)
+  await env.respond()
+  const result = await env.cli("validate", feed)
+  assert.equal(result.code, 2)
+  assert.equal(
+    result.stderr,
+    "Validation failed: x\ufffdCOPY (SELECT 42 AS pwned) TO 'pwned.csv';\ufffd--\nThe directory path has a control character, such as a line break: rename it and validate again.\n",
+  )
+  assert.deepEqual(await env.invocations(), [])
+})
+
+test("50,000 notices are read in seconds: DuckDB's output is parsed once", async (t) => {
+  const env = await setup(t)
+  const count = 50000
+  const rows = Array.from({ length: count }, (_, index) =>
+    JSON.stringify(notice("foreign_key_violation", "ERROR", "stop_times.txt", index + 2, { fieldName: "stop_id", fieldValue: `S${index}` })),
+  )
+  // DuckDB 2.0's -json layout: one row per line, the array's brackets on the first and last rows.
+  const summary = JSON.stringify([{ severity: "ERROR", code: "foreign_key_violation", total_notices: count }])
+  await env.respond({ stdout: `${summary}\n[${rows.join(",\n")}]\n` })
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  const started = Date.now()
+  const result = await env.cli("validate", feed, "--format", "csv")
+  const elapsed = Date.now() - started
+  assert.equal(result.code, 1, result.stderr)
+  assert.equal(result.stdout.split("\r\n").length - 2, count, "a header and one row per notice")
+  assert.ok(elapsed < 20000, `took ${elapsed} ms`)
+})
+
+test("notices that tie on code, file and row are ordered by their JSON text", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond({
+    summary: [{ severity: "WARNING", code: "stop_too_close_to_non_parent_station", total_notices: 3 }],
+    notices: [
+      notice("stop_too_close_to_non_parent_station", "WARNING", null, null, { csvRowNumber1: 1320, stopId1: "b" }),
+      notice("stop_too_close_to_non_parent_station", "WARNING", null, null, { csvRowNumber1: 507, stopId1: "c" }),
+      notice("stop_too_close_to_non_parent_station", "WARNING", null, null, { csvRowNumber1: 1321, stopId1: "a" }),
+    ],
+  })
+  const result = await env.cli("validate", feed, "--format", "json")
+  const report = JSON.parse(result.stdout)
+  assert.deepEqual(report.notices[0].sampleNotices.map((n) => n.csvRowNumber1), [1320, 1321, 507])
 })
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -529,17 +708,22 @@ test("refused remote sources exit 2 with import's refusals and print nothing of 
 
 test("text from the feed or DuckDB is printed without terminal escape sequences", async (t) => {
   const env = await setup(t)
-  const feed = path.join(env.root, "feed\u001b]0;title\u0007")
-  await writeFeedDirectory(feed)
+  const zipPath = await makeZip(env.root, "feed\u001b]0;title\u0007.zip", { "stops.txt": "stop_id\nS1\n" })
   await env.respond({ summary: [{ severity: "WARNING", code: "evil\u001b[2Jcode\u202e", total_notices: 1 }], notices: [] })
-  const result = await env.cli("validate", feed, "--date", "2026-03-01")
+  const result = await env.cli("validate", zipPath, "--date", "2026-03-01")
   assert.equal(result.code, 0, result.stderr)
   assert.doesNotMatch(result.stdout, /[\u001b\u0007\u202e]/)
   assert.match(result.stdout, /evilcode/)
   await env.respond({ stdout: "", stderr: "IO Error: bad \u001b[31mred\u001b[0m\n", exit: 1 })
-  const failed = await env.cli("validate", feed)
+  const failed = await env.cli("validate", zipPath)
   assert.equal(failed.code, 2)
   assert.doesNotMatch(failed.stderr, /[\u001b\u0007]/)
+  // A directory, whose path reaches the SQL, is refused, and its name is shown without the escape.
+  const feed = path.join(env.root, "feed\u001b]0;title\u0007")
+  await writeFeedDirectory(feed)
+  const refused = await env.cli("validate", feed)
+  assert.equal(refused.code, 2)
+  assert.doesNotMatch(refused.stderr, /[\u001b\u0007]/)
 })
 
 test("usage errors exit 2 without running DuckDB", async (t) => {

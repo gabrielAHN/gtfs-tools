@@ -6,24 +6,46 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { runProcess } from "../duckdb/runner.js";
 
-export const extractZipEntry = (zipPath: string, entry: string, targetPath: string) =>
-  new Promise<void>((resolve, reject) => {
+// Extracts `entry` to `targetPath` and resolves to its size once the file is written. Past `maxBytes`
+// the extraction stops and fails (a zip bomb would otherwise fill the disk).
+export const extractZipEntry = (zipPath: string, entry: string, targetPath: string, maxBytes = Infinity) =>
+  new Promise<number>((resolve, reject) => {
     const child = spawn("unzip", ["-p", zipPath, entry], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const output = createWriteStream(targetPath);
     const stderr: Buffer[] = [];
+    let bytes = 0;
+    let tooLarge = false;
+    let exitCode: number | null | undefined;
+    let written = false;
+    const settle = () => {
+      if (exitCode === undefined || !written) return;
+      if (tooLarge) reject(new Error(`Not enough free disk space to extract ${entry}: it is larger than ${Math.floor(maxBytes / 1024 ** 2)} MiB.`));
+      else if (exitCode === 0) resolve(bytes);
+      else reject(new Error(Buffer.concat(stderr).toString("utf8") || `Failed to extract ${entry}`));
+    };
+    child.stdout.on("data", (chunk: Buffer) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes && !tooLarge) {
+        tooLarge = true;
+        child.kill();
+      }
+    });
     child.stdout.pipe(output);
     child.stderr.on("data", (chunk) =>
       stderr.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)),
     );
     child.on("error", reject);
     output.on("error", reject);
+    output.on("close", () => {
+      written = true;
+      settle();
+    });
     child.on("close", (code) => {
+      exitCode = code;
       output.end();
-      if (code === 0) resolve();
-      else
-        reject(new Error(Buffer.concat(stderr).toString("utf8") || `Failed to extract ${entry}`));
+      settle();
     });
   });
 

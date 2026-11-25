@@ -31,20 +31,23 @@ export const VALIDATED_FILES = [
 const unexpected = (detail: string) => new Error(`Unexpected DuckDB output from gtfs_validate: ${detail}`);
 
 // The JSON arrays DuckDB's -json mode printed, one per statement, skipping any other line (DuckDB 2.0
-// can print WARNING lines on stdout). Each array starts on a line of its own.
+// can print WARNING lines on stdout). Each array starts on a line of its own and DuckDB prints one row
+// per line, so an array can only end on a line ending with "]": parsing is tried only there, which
+// keeps it linear in the number of rows.
 const jsonArrays = (stdout: string) => {
   const arrays: unknown[][] = [];
-  let pending: string[] | undefined;
+  let pending: string[] = [];
   for (const line of stdout.split(/\r?\n/)) {
-    if (!pending && !line.startsWith("[")) continue;
-    pending = [...(pending ?? []), line];
+    if (pending.length === 0 && !line.startsWith("[")) continue;
+    pending.push(line);
+    if (!line.trimEnd().endsWith("]")) continue;
     try {
       const value = JSON.parse(pending.join("\n"));
       if (Array.isArray(value)) arrays.push(value);
-      pending = undefined;
+      pending = [];
     } catch {}
   }
-  if (pending) throw unexpected("an incomplete JSON result");
+  if (pending.length > 0) throw unexpected("an incomplete JSON result");
   return arrays;
 };
 
@@ -107,17 +110,20 @@ export const countsLine = ({ errors, warnings, infos }: Counts) =>
 const compareNullsFirst = <T>(a: T | null, b: T | null, compare: (x: T, y: T) => number) =>
   a === null ? (b === null ? 0 : -1) : b === null ? 1 : compare(a, b);
 
+const compareText = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+
 // Notices in report order: by the summary's code order, then filename, then csv row number (missing
-// values first). The sort is stable, so notices that tie keep DuckDB's order.
+// values first), then the notice's JSON text, so the order never depends on DuckDB's.
 const orderedNotices = (result: ValidationResult) => {
   const rank = new Map(result.summary.map((row, index) => [row.code, index]));
   const codeRank = (code: string) => rank.get(code) ?? result.summary.length;
   return [...result.notices].sort(
     (a, b) =>
       codeRank(a.code) - codeRank(b.code) ||
-      (a.code < b.code ? -1 : a.code > b.code ? 1 : 0) ||
-      compareNullsFirst(a.filename, b.filename, (x, y) => (x < y ? -1 : x > y ? 1 : 0)) ||
-      compareNullsFirst(a.csvRowNumber, b.csvRowNumber, (x, y) => x - y),
+      compareText(a.code, b.code) ||
+      compareNullsFirst(a.filename, b.filename, compareText) ||
+      compareNullsFirst(a.csvRowNumber, b.csvRowNumber, (x, y) => x - y) ||
+      compareText(a.notice, b.notice),
   );
 };
 
