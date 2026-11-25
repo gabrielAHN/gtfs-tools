@@ -6,8 +6,20 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { runProcess } from "../duckdb/runner.js";
 
+// Thrown when an entry is larger than extractZipEntry's maxBytes.
+export class EntryTooLargeError extends Error {
+  readonly entry: string;
+  readonly maxBytes: number;
+  constructor(entry: string, maxBytes: number) {
+    super(`${entry} is larger than the ${maxBytes} bytes that may be extracted.`);
+    this.name = "EntryTooLargeError";
+    this.entry = entry;
+    this.maxBytes = maxBytes;
+  }
+}
+
 // Extracts `entry` to `targetPath` and resolves to its size once the file is written. Past `maxBytes`
-// the extraction stops and fails (a zip bomb would otherwise fill the disk).
+// the extraction stops and fails with EntryTooLargeError (a zip bomb would otherwise fill the disk).
 export const extractZipEntry = (zipPath: string, entry: string, targetPath: string, maxBytes = Infinity) =>
   new Promise<number>((resolve, reject) => {
     const child = spawn("unzip", ["-p", zipPath, entry], {
@@ -21,7 +33,7 @@ export const extractZipEntry = (zipPath: string, entry: string, targetPath: stri
     let written = false;
     const settle = () => {
       if (exitCode === undefined || !written) return;
-      if (tooLarge) reject(new Error(`Not enough free disk space to extract ${entry}: it is larger than ${Math.floor(maxBytes / 1024 ** 2)} MiB.`));
+      if (tooLarge) reject(new EntryTooLargeError(entry, maxBytes));
       else if (exitCode === 0) resolve(bytes);
       else reject(new Error(Buffer.concat(stderr).toString("utf8") || `Failed to extract ${entry}`));
     };

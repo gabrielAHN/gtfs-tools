@@ -391,7 +391,7 @@ const makeZip = async (root, name, entries) => {
 test("a zip is validated from a private temporary directory holding only the 8 files, removed afterwards", async (t) => {
   const env = await setup(t)
   const entries = Object.fromEntries(VALIDATED_FILES.map((file) => [file, `${file} content\n`]))
-  Object.assign(entries, { "agency.txt": "agency\n", "feed_info.txt": "feed\n", "gtfs/frequencies.txt": "f\n", "notes/readme.md": "x\n", "stops.txt.bak": "old\n" })
+  Object.assign(entries, { "agency.txt": "agency\n", "feed_info.txt": "feed\n", "notes/readme.md": "x\n", "stops.txt.bak": "old\n" })
   const zipPath = await makeZip(env.root, "my feed.zip", entries)
   await env.respond({ summary: SUMMARY, notices: NOTICES })
   const result = await env.cli("validate", zipPath, "--date", "2026-03-01")
@@ -474,14 +474,95 @@ test("a zip is read as the official validator reads it: root entries only, names
   ])
   await env.respond()
   const result = await env.cli("validate", zipPath)
-  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.code, 1, "invalid_input_files_in_subfolder is an ERROR")
   const [{ files }] = await env.invocations()
   assert.deepEqual(files, { "calendar_dates.txt": "root dates\n", "routes.txt": "routes in another case\n", "stops.txt": "root stops\n" })
   assert.equal(
     result.stderr,
-    "Not validated, in a folder of the zip (the official validator reads only its root): old/stops.txt, ../trips.txt, /abs/stop_times.txt, */shapes.txt, [a]/calendar.txt\n",
+    "Not validated, in a folder of the zip (the official validator reads only its root and reports invalid_input_files_in_subfolder): old/stops.txt, ../trips.txt, /abs/stop_times.txt, */shapes.txt, [a]/calendar.txt\n",
   )
+  assert.match(result.stdout, /\nERROR\s+invalid_input_files_in_subfolder\s+1\n/)
   assert.deepEqual(await readdir(env.tmp), [])
+})
+
+test("of root entries equal without case, the first in zip order is validated, as the official validator does", async (t) => {
+  const env = await setup(t)
+  const zipPath = await writeRawZip(env.root, "case.zip", [
+    ["Stops.txt", "first\n"],
+    ["routes.txt", "routes\n"],
+    ["stops.txt", "second\n"],
+    ["STOPS.TXT", "third\n"],
+  ])
+  await env.respond()
+  const result = await env.cli("validate", zipPath)
+  assert.equal(result.code, 0, result.stderr)
+  const [{ files }] = await env.invocations()
+  assert.deepEqual(files, { "routes.txt": "routes\n", "stops.txt": "first\n" })
+  assert.equal(
+    result.stderr,
+    "Not validated, an earlier entry has the same name without case (the official validator reads the first): stops.txt, STOPS.TXT\n",
+  )
+})
+
+test("a GTFS file in a folder of a zip is reported as the official validator's invalid_input_files_in_subfolder ERROR", async (t) => {
+  const env = await setup(t)
+  const zipPath = await writeRawZip(env.root, "folder.zip", [
+    ["stops.txt", "stop_id\nS1\n"],
+    ["old/", ""],
+    ["old/agency.txt", "agency\n"],
+    ["__MACOSX/._stops.txt", "resource fork\n"],
+  ])
+  await env.respond({ summary: SUMMARY, notices: NOTICES })
+  const json = await env.cli("validate", zipPath, "--format", "json")
+  assert.equal(json.code, 1, json.stderr)
+  const report = JSON.parse(json.stdout)
+  assert.deepEqual(
+    report.notices.map((entry) => entry.code),
+    ["foreign_key_violation", "invalid_input_files_in_subfolder", "missing_required_field", "missing_recommended_file", "unknown_column"],
+  )
+  assert.deepEqual(report.notices[1], { code: "invalid_input_files_in_subfolder", severity: "ERROR", totalNotices: 1, sampleNotices: [{}] })
+  assert.equal(report.summary.counts.errors, 4)
+  assert.equal(
+    json.stderr,
+    "Not validated, in a folder of the zip (the official validator reads only its root and reports invalid_input_files_in_subfolder): old/agency.txt\n",
+  )
+  const csv = await env.cli("validate", zipPath, "--format", "csv")
+  assert.ok(csv.stdout.includes("\r\ninvalid_input_files_in_subfolder,ERROR,,,{}\r\n"), csv.stdout)
+  // Only GTFS file names count, compared with case, as in GtfsInput.containsGtfsFileInSubfolder.
+  const other = await writeRawZip(env.root, "other.zip", [
+    ["stops.txt", "stop_id\nS1\n"],
+    ["docs/Stops.txt", "x\n"],
+    ["docs/readme.txt", "x\n"],
+    ["stops.txt/", ""],
+  ])
+  await env.respond()
+  const clean = await env.cli("validate", other)
+  assert.equal(clean.code, 0, clean.stderr)
+  assert.equal(clean.stderr, "")
+})
+
+test("a directory whose path has *, ? or [ is validated through links, so DuckDB never reads it as a pattern", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed[1]")
+  await writeFeedDirectory(feed)
+  // DuckDB would read feed[1]/stops.txt as a pattern matching feed1/stops.txt.
+  await mkdir(path.join(env.root, "feed1"))
+  await writeFile(path.join(env.root, "feed1", "stops.txt"), "stop_id\nDECOY\n")
+  await env.respond()
+  const result = await env.cli("validate", feed)
+  assert.equal(result.code, 0, result.stderr)
+  const [{ directory, files }] = await env.invocations()
+  assert.equal(path.dirname(directory), env.tmp)
+  assert.equal(files["stops.txt"], "stop_id,stop_name,stop_lat,stop_lon\nS1,One,40.0,-73.0\n")
+  assert.deepEqual(await readdir(env.tmp), [])
+  // A temporary directory with such a character is refused, not validated.
+  const patternTmp = path.join(env.root, "tmp*")
+  await mkdir(patternTmp)
+  const refused = await env.cli("validate", feed, { TMPDIR: patternTmp })
+  assert.equal(refused.code, 2)
+  assert.match(refused.stderr, /has \*, \? or \[, which DuckDB reads as a file pattern: set TMPDIR to a directory without them\.\n$/)
+  assert.deepEqual(await readdir(patternTmp), [])
+  assert.equal((await env.invocations()).length, 1)
 })
 
 test("an extraction stops past its byte limit, and resolves only once the file is written", async (t) => {
@@ -494,7 +575,10 @@ test("an extraction stops past its byte limit, and resolves only once the file i
   const target = path.join(root, "stops.txt")
   assert.equal(await extractZipEntry(zipPath, "stops.txt", target), 200000)
   assert.equal((await readFile(target, "utf8")).length, 200000, "written in full when the promise resolves")
-  await assert.rejects(extractZipEntry(zipPath, "stops.txt", path.join(root, "capped.txt"), 1000), /^Error: Not enough free disk space to extract stops\.txt/)
+  await assert.rejects(
+    extractZipEntry(zipPath, "stops.txt", path.join(root, "capped.txt"), 1000),
+    (error) => error.name === "EntryTooLargeError" && error.entry === "stops.txt" && error.maxBytes === 1000,
+  )
 })
 
 test("a zip with two entries of the same name exits 2 without running DuckDB", async (t) => {

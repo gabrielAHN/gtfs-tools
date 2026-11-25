@@ -5,7 +5,7 @@ import path from "node:path";
 import type { Args } from "../args.js";
 import { buildDuckDbSessionSql } from "../duckdb/config.js";
 import { defaultExtensionStartup, runDuckDb } from "../duckdb/runner.js";
-import { extractZipEntry, listZipEntries, validateFeed } from "../feed/zip.js";
+import { EntryTooLargeError, extractZipEntry, listZipEntries, validateFeed } from "../feed/zip.js";
 import { safeTerminalText } from "../output/safe-text.js";
 import { cleanupOnSignal, downloadFeed } from "../remote/download.js";
 import type { RemoteFeedSource, SignalCleanup } from "../remote/download.js";
@@ -13,7 +13,7 @@ import { parseFeedSource, redactSource, sourceLabel } from "../remote/source.js"
 import type { FeedSource } from "../remote/source.js";
 import { downloadsDir } from "../session/metadata.js";
 import { VALIDATED_FILES, buildReport, parseValidationOutput, renderCsv, renderTable } from "./report.js";
-import type { ValidationResult } from "./report.js";
+import type { Severity, SummaryRow, ValidationResult } from "./report.js";
 import { VALIDATE_USAGE } from "./usage.js";
 
 // Exit codes: no ERROR notice, at least one ERROR notice, validation could not run.
@@ -33,6 +33,10 @@ type Run = { date: string; notices: boolean };
 
 // Control characters (a line break, an escape) are refused in a directory path, which reaches the SQL.
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f-\u009f]/;
+
+// DuckDB reads a path holding *, ? or [ as a file pattern, which can match another directory's files
+// instead of this one's.
+const GLOB_CHARACTER = /[*?[]/;
 
 const today = () => {
   const now = new Date();
@@ -103,45 +107,116 @@ const runValidation = async (directory: string, run: Run): Promise<ValidationRes
   return parseValidationOutput(stdout);
 };
 
-const isValidatedFile = (name: string) => (VALIDATED_FILES as readonly string[]).includes(name.toLowerCase());
-
-// The name `file` has among `names`, found as the official validator finds files (it lowercases names):
-// the exact name, else the first name equal to it without case.
+// The name `file` has among a directory's `names`: the exact name, else the first name equal to it without
+// case (the official validator lowercases names).
 const findFile = (names: string[], file: string) => (names.includes(file) ? file : names.find((name) => name.toLowerCase() === file));
 
-// Extraction stops before it would leave less than this much free space on the temporary directory's disk.
-const FREE_SPACE_RESERVE = 512 * 1024 ** 2;
+// The official validator's GTFS file names (GtfsFiles): one of them in a folder of a zip is an ERROR,
+// invalid_input_files_in_subfolder.
+const GTFS_FILE_NAMES = new Set([
+  "agency.txt",
+  "stops.txt",
+  "routes.txt",
+  "trips.txt",
+  "stop_times.txt",
+  "calendar.txt",
+  "calendar_dates.txt",
+  "fare_attributes.txt",
+  "fare_rules.txt",
+  "fare_media.txt",
+  "fare_products.txt",
+  "fare_leg_rules.txt",
+  "fare_transfer_rules.txt",
+  "areas.txt",
+  "stop_areas.txt",
+  "shapes.txt",
+  "frequencies.txt",
+  "transfers.txt",
+  "pathways.txt",
+  "levels.txt",
+  "translations.txt",
+  "feed_info.txt",
+  "attributions.txt",
+]);
 
-// The bytes the extracted files may take: the free space of the disk holding `directory`, less the
-// reserve. Unlimited where Node.js cannot tell (fs.statfs needs Node.js 18.15 or later).
-const extractionBudget = async (directory: string) => {
-  if (typeof fsPromises.statfs !== "function") return Infinity;
-  const { bavail, bsize } = await fsPromises.statfs(directory);
-  return Math.max(0, Number(bavail) * Number(bsize) - FREE_SPACE_RESERVE);
+// GtfsInput.containsGtfsFileInSubfolder for one entry: its name split on "/" as Java splits it (trailing
+// empty parts dropped) has a folder and ends with a GTFS file name, compared with case.
+const isGtfsFileInSubfolder = (entry: string) => {
+  const parts = entry.split("/");
+  while (parts.length > 0 && parts[parts.length - 1] === "") parts.pop();
+  return parts.length > 1 && GTFS_FILE_NAMES.has(parts[parts.length - 1]);
 };
 
-// Extracts the files the rules cover into `directory`, read as the official validator reads a zip: only
-// entries at the root, names compared without case. A missing file is left out (the validator reports
-// missing files itself), files in folders are named on stderr, and two entries with the same name are
-// refused, since `unzip` would join them.
+const SUBFOLDER_CODE = "invalid_input_files_in_subfolder";
+const SEVERITY_RANK: Record<Severity, number> = { ERROR: 0, WARNING: 1, INFO: 2 };
+
+// Adds the official validator's invalid_input_files_in_subfolder ERROR (a notice without fields) to a
+// result, in the summary's order: severity, then code.
+const withSubfolderNotice = (result: ValidationResult, run: Run): ValidationResult => {
+  const row: SummaryRow = { severity: "ERROR", code: SUBFOLDER_CODE, totalNotices: 1 };
+  const summary = [...result.summary, row].sort(
+    (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (a.code < b.code ? -1 : a.code > b.code ? 1 : 0),
+  );
+  const notices = run.notices
+    ? [...result.notices, { code: SUBFOLDER_CODE, severity: "ERROR", filename: null, csvRowNumber: null, notice: "{}" }]
+    : result.notices;
+  return { summary, notices };
+};
+
+const shownNames = (names: string[]) => names.slice(0, 5).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
+
+// Extraction stops before it would leave less than this much free space on the temporary directory's disk.
+const FREE_SPACE_RESERVE_MIB = 512;
+
+// The bytes the extracted files may take: the free space of the disk holding `directory`, less the
+// reserve. Unlimited, with a note, where Node.js cannot tell (fs.statfs needs Node.js 18.15 or later).
+const extractionBudget = async (directory: string) => {
+  if (typeof fsPromises.statfs !== "function") {
+    console.error("Free disk space is not checked while extracting the zip: that needs Node.js 18.15 or later.");
+    return Infinity;
+  }
+  const { bavail, bsize } = await fsPromises.statfs(directory);
+  return Math.max(0, Number(bavail) * Number(bsize) - FREE_SPACE_RESERVE_MIB * 1024 ** 2);
+};
+
+// Extracts the files the rules cover into `directory`, read as the official validator reads a zip: for
+// each file, the first entry at the root, in zip order, whose name equals it without case. A missing file
+// is left out (the validator reports missing files itself), and two entries with that exact name are
+// refused, since `unzip` would join them. Resolves to whether a GTFS file sits in a folder of the zip.
 const extractFeed = async (zipPath: string, directory: string) => {
   const entries = await listZipEntries(zipPath);
   const root = entries.filter((entry) => !entry.includes("/"));
   const files: [string, string][] = [];
+  const later: string[] = [];
   for (const file of VALIDATED_FILES) {
-    const entry = findFile(root, file);
-    if (!entry) continue;
-    const copies = root.filter((name) => name === entry).length;
+    const matches = root.filter((name) => name.toLowerCase() === file);
+    if (matches.length === 0) continue;
+    const entry = matches[0];
+    const copies = matches.filter((name) => name === entry).length;
     if (copies > 1) throw new Error(`The zip has ${copies} entries named ${entry}: remove the extra ones and validate again.`);
     files.push([file, entry]);
+    later.push(...matches.slice(1));
   }
-  const inFolders = entries.filter((entry) => entry.includes("/") && isValidatedFile(entry.slice(entry.lastIndexOf("/") + 1)));
+  if (later.length > 0) {
+    console.error(safeTerminalText(`Not validated, an earlier entry has the same name without case (the official validator reads the first): ${shownNames(later)}`));
+  }
+  const inFolders = entries.filter(isGtfsFileInSubfolder);
   if (inFolders.length > 0) {
-    const shown = inFolders.slice(0, 5).join(", ") + (inFolders.length > 5 ? ` and ${inFolders.length - 5} more` : "");
-    console.error(safeTerminalText(`Not validated, in a folder of the zip (the official validator reads only its root): ${shown}`));
+    console.error(safeTerminalText(`Not validated, in a folder of the zip (the official validator reads only its root and reports ${SUBFOLDER_CODE}): ${shownNames(inFolders)}`));
   }
   let budget = await extractionBudget(directory);
-  for (const [file, entry] of files) budget -= await extractZipEntry(zipPath, entry, path.join(directory, file), budget);
+  for (const [file, entry] of files) {
+    try {
+      budget -= await extractZipEntry(zipPath, entry, path.join(directory, file), budget);
+    } catch (error) {
+      if (!(error instanceof EntryTooLargeError)) throw error;
+      throw new Error(
+        `Not enough free disk space to extract ${entry}: extraction stops before it would leave less than ${FREE_SPACE_RESERVE_MIB} MiB free on the disk of ${os.tmpdir()}.`,
+        { cause: error },
+      );
+    }
+  }
+  return inFolders.length > 0;
 };
 
 // Runs `validate` on a new private (0700) temporary directory, which is always removed afterwards: on
@@ -150,29 +225,35 @@ const inTemporaryDirectory = async <T>(cleanup: SignalCleanup, validate: (direct
   const directory = await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-validate-"));
   cleanup.add(directory);
   try {
+    if (GLOB_CHARACTER.test(directory)) {
+      throw new Error(`The temporary directory ${directory} has *, ? or [, which DuckDB reads as a file pattern: set TMPDIR to a directory without them.`);
+    }
     return await validate(directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
 };
 
-// Validates a zip from a temporary directory holding only the extracted files.
+// Validates a zip from a temporary directory holding only the extracted files, with the official
+// validator's invalid_input_files_in_subfolder when a GTFS file sits in a folder of the zip.
 const validateZip = (zipPath: string, run: Run, cleanup: SignalCleanup) =>
   inTemporaryDirectory(cleanup, async (directory) => {
-    await extractFeed(zipPath, directory);
-    return runValidation(directory, run);
+    const inSubfolder = await extractFeed(zipPath, directory);
+    const result = await runValidation(directory, run);
+    return inSubfolder ? withSubfolderNotice(result, run) : result;
   });
 
-// A directory is validated as it is. When a file's name has another case (Stops.txt), which the official
-// validator reads but the extension does not find on a case-sensitive disk, it is validated through a
-// temporary directory of links with the lowercase names.
+// A directory is validated as it is, unless the extension would misread it: when a file's name has another
+// case (Stops.txt), which the official validator reads but the extension does not find on a case-sensitive
+// disk, or when its path has *, ? or [, which DuckDB reads as a file pattern. It is then validated through
+// a temporary directory of links with the lowercase names.
 const validateDirectory = async (directory: string, run: Run, cleanup: SignalCleanup) => {
   const names = (await readdir(directory, { withFileTypes: true })).filter((entry) => !entry.isDirectory()).map((entry) => entry.name);
   const files = VALIDATED_FILES.flatMap((file) => {
     const name = findFile(names, file);
     return name ? [[file, name] as const] : [];
   });
-  if (files.every(([file, name]) => file === name)) return runValidation(directory, run);
+  if (!GLOB_CHARACTER.test(directory) && files.every(([file, name]) => file === name)) return runValidation(directory, run);
   return inTemporaryDirectory(cleanup, async (links) => {
     for (const [file, name] of files) await symlink(path.join(directory, name), path.join(links, file));
     return runValidation(links, run);
