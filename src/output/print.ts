@@ -143,7 +143,8 @@ const commandHelp: Record<string, string> = {
   Remote feeds download and authenticate exactly as for import (${CLI} h import).
   As the official validator does, only files at a zip's root are read, with
   names compared without case; files in a folder of the zip are listed on
-  stderr and not read.
+  stderr and not read, and a GTFS file in a folder is an ERROR
+  (invalid_input_files_in_subfolder).
 
   Flags:
     --date YYYY-MM-DD       Date the feed is validated for (default: today)

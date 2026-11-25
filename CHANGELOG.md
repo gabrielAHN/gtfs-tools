@@ -18,10 +18,13 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
 - Remote feeds download and authenticate as for `import`. A zip is read from a private temporary directory
   that is removed afterwards, also on Ctrl-C or SIGTERM. Validation never changes the imported dataset or
   the dashboard.
-- Zips are read as the official validator reads them: only files at the root, names compared without case.
-  Files in a folder of the zip are listed on stderr and not read; a zip with two entries of the same name is
-  refused. Extraction stops before it would leave less than 512 MiB free on the disk. A directory whose
-  path has a control character is refused.
+- Zips are read as the official validator reads them: only files at the root, names compared without case
+  (the first of two such entries is read). Files in a folder of the zip are listed on stderr and not read,
+  and a GTFS file in a folder is reported as the validator's `invalid_input_files_in_subfolder` ERROR. A zip
+  with two entries of the same name is refused. With Node.js 18.15 or later, extraction stops before it
+  would leave less than 512 MiB free on the disk. A directory whose path has a control character is
+  refused; one whose path has `*`, `?` or `[`, which DuckDB reads as a file pattern, is validated through
+  links in a temporary directory.
 
 ## [1.5.5] - 2026-11-05
 

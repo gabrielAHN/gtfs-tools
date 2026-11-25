@@ -59,7 +59,7 @@ gtfs-tools validate ./feed.zip --format json    # report.json shape: summary, th
 gtfs-tools validate ./feed.zip --format csv     # One row per notice: code,severity,filename,csv_row_number,notice
 ```
 
-Runs the gtfs extension's `gtfs_validate` pragma (MobilityData validator rules for stops, pathways, routes, trips, stop_times, shapes, calendar and calendar_dates). Remote feeds download as for `import`; the imported dataset is never changed. Only files at a zip's root are read (names compared without case), as the official validator does; files in a folder are listed on stderr. It exits 0 without ERROR notices, 1 with at least one, and 2 when validation could not run. Needs the gtfs extension 1.1.0 or later (`duckdb -c "UPDATE EXTENSIONS (gtfs)"` for the community repository; never run automatically). See `gtfs-tools h validate`.
+Runs the gtfs extension's `gtfs_validate` pragma (MobilityData validator rules for stops, pathways, routes, trips, stop_times, shapes, calendar and calendar_dates). Remote feeds download as for `import`; the imported dataset is never changed. Only files at a zip's root are read (names compared without case), as the official validator does; files in a folder are listed on stderr, and a GTFS file in a folder is the validator's `invalid_input_files_in_subfolder` ERROR. It exits 0 without ERROR notices, 1 with at least one, and 2 when validation could not run. Needs the gtfs extension 1.1.0 or later (`duckdb -c "UPDATE EXTENSIONS (gtfs)"` for the community repository; never run automatically). See `gtfs-tools h validate`.
 
 ## Browse Data
 

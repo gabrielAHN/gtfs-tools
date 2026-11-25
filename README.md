@@ -81,9 +81,11 @@ gtfs-tools validate s3://my-bucket/gtfs/feed.zip --format csv > notices.csv
 - **Sources:** remote feeds download and authenticate as for `import`. Validation never changes the imported
   dataset or the dashboard.
 - **Zips:** as the official validator does, only files at the zip's root are read, and names are compared
-  without case (`Stops.txt` is `stops.txt`). Unlike `import`, files in a folder of the zip are not read: they
-  are listed on stderr. A zip with two entries of the same name is refused, and extraction stops before it
-  would leave less than 512 MiB free on the temporary directory's disk.
+  without case (`Stops.txt` is `stops.txt`; of two such entries, the first in the zip is read). Unlike
+  `import`, files in a folder of the zip are not read: they are listed on stderr, and a GTFS file in a folder
+  is the validator's `invalid_input_files_in_subfolder` ERROR. A zip with two entries of the same name is
+  refused. With Node.js 18.15 or later, extraction stops before it would leave less than 512 MiB free on the
+  temporary directory's disk.
 - **Extension:** it needs the gtfs extension 1.1.0 or later. Update an older one from the community
   repository with `duckdb -c "UPDATE EXTENSIONS (gtfs)"`; the CLI never updates it itself.
 
