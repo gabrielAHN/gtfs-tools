@@ -6,7 +6,7 @@ import { buildDuckDbSessionSql } from "../duckdb/config.js";
 import { defaultExtensionStartup, runDuckDb } from "../duckdb/runner.js";
 import { extractZipEntry, findGtfsEntry, listZipEntries, validateFeed } from "../feed/zip.js";
 import { safeTerminalText } from "../output/safe-text.js";
-import { VALIDATED_FILES, parseValidationOutput, renderTable } from "./report.js";
+import { VALIDATED_FILES, buildReport, parseValidationOutput, renderCsv, renderTable } from "./report.js";
 import type { ValidationResult } from "./report.js";
 import { VALIDATE_USAGE } from "./usage.js";
 
@@ -108,7 +108,9 @@ export const commandValidate = async (args: Args): Promise<number> => {
   const label = path.basename(path.resolve(options.feed));
   try {
     const result = await validateLocal(options.feed, options.date);
-    process.stdout.write(renderTable(result, label, options.date));
+    if (options.format === "json") process.stdout.write(`${JSON.stringify(buildReport(result, label, options.date), null, 2)}\n`);
+    else if (options.format === "csv") process.stdout.write(renderCsv(result));
+    else process.stdout.write(renderTable(result, label, options.date));
     return result.summary.some((row) => row.severity === "ERROR" && row.totalNotices > 0) ? EXIT_ERRORS : EXIT_PASSED;
   } catch (error) {
     console.error(`Validation failed: ${safeTerminalText(label)}`);

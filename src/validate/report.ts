@@ -104,6 +104,72 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 export const countsLine = ({ errors, warnings, infos }: Counts) =>
   `${plural(errors, "error")}, ${plural(warnings, "warning")}, ${plural(infos, "info")}`;
 
+const compareNullsFirst = <T>(a: T | null, b: T | null, compare: (x: T, y: T) => number) =>
+  a === null ? (b === null ? 0 : -1) : b === null ? 1 : compare(a, b);
+
+// Notices in report order: by the summary's code order, then filename, then csv row number (missing
+// values first). The sort is stable, so notices that tie keep DuckDB's order.
+const orderedNotices = (result: ValidationResult) => {
+  const rank = new Map(result.summary.map((row, index) => [row.code, index]));
+  const codeRank = (code: string) => rank.get(code) ?? result.summary.length;
+  return [...result.notices].sort(
+    (a, b) =>
+      codeRank(a.code) - codeRank(b.code) ||
+      (a.code < b.code ? -1 : a.code > b.code ? 1 : 0) ||
+      compareNullsFirst(a.filename, b.filename, (x, y) => (x < y ? -1 : x > y ? 1 : 0)) ||
+      compareNullsFirst(a.csvRowNumber, b.csvRowNumber, (x, y) => x - y),
+  );
+};
+
+const parseNotice = (notice: NoticeRow) => {
+  try {
+    return JSON.parse(notice.notice) as unknown;
+  } catch {
+    throw unexpected(`a ${notice.code} notice that is not JSON`);
+  }
+};
+
+// The MobilityData report.json shape: a summary, then one entry per code in the summary's order,
+// with every notice of that code (not capped) as its sampleNotices.
+export const buildReport = (result: ValidationResult, label: string, date: string) => {
+  const byCode = new Map<string, unknown[]>();
+  for (const notice of orderedNotices(result)) {
+    const list = byCode.get(notice.code) ?? [];
+    list.push(parseNotice(notice));
+    byCode.set(notice.code, list);
+  }
+  return {
+    summary: {
+      validator: "gtfs DuckDB extension",
+      dateForValidation: date,
+      gtfsInput: label,
+      counts: countNotices(result.summary),
+    },
+    notices: result.summary.map((row) => ({
+      code: row.code,
+      severity: row.severity,
+      totalNotices: row.totalNotices,
+      sampleNotices: byCode.get(row.code) ?? [],
+    })),
+  };
+};
+
+// RFC 4180: a field holding a comma, a double quote, CR or LF is quoted, with quotes doubled.
+const csvField = (value: string | number | null) => {
+  const text = value === null ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+};
+
+export const renderCsv = (result: ValidationResult) =>
+  [
+    "code,severity,filename,csv_row_number,notice",
+    ...orderedNotices(result).map((notice) =>
+      [notice.code, notice.severity, notice.filename, notice.csvRowNumber, notice.notice].map(csvField).join(","),
+    ),
+  ]
+    .map((line) => `${line}\r\n`)
+    .join("");
+
 // The terminal report. Codes and the source label may come from the feed or a server, so every value
 // goes through safeTerminalText.
 export const renderTable = (result: ValidationResult, label: string, date: string) => {

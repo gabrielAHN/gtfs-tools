@@ -253,6 +253,86 @@ test("--date must be a real YYYY-MM-DD date and defaults to today in local time"
   }
 })
 
+test("--format json prints one report.json-shaped document with every notice of each code", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  // More notices than MobilityData's sample cap of 100 per code: none are dropped.
+  const many = Array.from({ length: 120 }, (_, index) => notice("unknown_column", "INFO", "stops.txt", 120 - index, { fieldName: `c${index}` }))
+  await env.respond({ summary: [...SUMMARY.slice(0, 3), { severity: "INFO", code: "unknown_column", total_notices: 123 }], notices: [...NOTICES, ...many] })
+  const result = await env.cli("validate", feed, "--date", "2026-03-01", "--format", "json")
+  assert.equal(result.code, 1, result.stderr)
+  const report = JSON.parse(result.stdout)
+  assert.deepEqual(Object.keys(report), ["summary", "notices"])
+  assert.deepEqual(report.summary, {
+    validator: "gtfs DuckDB extension",
+    dateForValidation: "2026-03-01",
+    gtfsInput: "feed",
+    counts: { errors: 3, warnings: 1, infos: 123 },
+  })
+  assert.deepEqual(report.notices.map(({ code, severity, totalNotices }) => [code, severity, totalNotices]), [
+    ["foreign_key_violation", "ERROR", 2],
+    ["missing_required_field", "ERROR", 1],
+    ["missing_recommended_file", "WARNING", 1],
+    ["unknown_column", "INFO", 123],
+  ])
+  assert.deepEqual(report.notices[0].sampleNotices, [
+    { csvRowNumber: 12, filename: "stop_times.txt", fieldName: "stop_id", fieldValue: "S9" },
+    { csvRowNumber: 3, filename: "trips.txt", fieldName: "route_id", fieldValue: "R9", childFilename: "trips.txt" },
+  ])
+  assert.deepEqual(report.notices[2].sampleNotices, [{ filename: "shapes.txt" }])
+  const unknown = report.notices[3].sampleNotices
+  assert.equal(unknown.length, 123)
+  // By filename, then csv row number (numerically).
+  assert.deepEqual(unknown.slice(0, 3).map((n) => [n.filename, n.csvRowNumber]), [["routes.txt", 1], ["stops.txt", 1], ["stops.txt", 1]])
+  const stops = unknown.filter((n) => n.filename === "stops.txt").map((n) => n.csvRowNumber)
+  assert.deepEqual(stops, [...stops].sort((a, b) => a - b))
+  assert.equal(unknown.at(-1).filename, "trips.txt")
+})
+
+test("--format csv prints one RFC 4180 row per notice", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond({
+    summary: [{ severity: "ERROR", code: "foreign_key_violation", total_notices: 2 }, { severity: "WARNING", code: "missing_recommended_file", total_notices: 1 }],
+    notices: [
+      notice("foreign_key_violation", "ERROR", "trips.txt", 3, { fieldValue: 'say "hi", then\nleave' }),
+      notice("missing_recommended_file", "WARNING", null, null),
+      notice("foreign_key_violation", "ERROR", "stops.txt", 10),
+    ],
+  })
+  const result = await env.cli("validate", feed, "--format", "csv")
+  assert.equal(result.code, 1, result.stderr)
+  const quoted = (text) => `"${text.replaceAll('"', '""')}"`
+  assert.equal(
+    result.stdout,
+    [
+      "code,severity,filename,csv_row_number,notice",
+      `foreign_key_violation,ERROR,stops.txt,10,${quoted('{"csvRowNumber":10,"filename":"stops.txt"}')}`,
+      `foreign_key_violation,ERROR,trips.txt,3,${quoted(JSON.stringify({ csvRowNumber: 3, filename: "trips.txt", fieldValue: 'say "hi", then\nleave' }))}`,
+      "missing_recommended_file,WARNING,,,{}",
+      "",
+    ].join("\r\n"),
+  )
+})
+
+test("--format csv with no notices prints only the header and exits 0", async (t) => {
+  const env = await setup(t)
+  const feed = path.join(env.root, "feed")
+  await writeFeedDirectory(feed)
+  await env.respond()
+  const result = await env.cli("validate", feed, "--format", "csv")
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout, "code,severity,filename,csv_row_number,notice\r\n")
+  const json = await env.cli("validate", feed, "--format", "json", "--date", "2026-03-01")
+  assert.equal(json.code, 0, json.stderr)
+  assert.deepEqual(JSON.parse(json.stdout), {
+    summary: { validator: "gtfs DuckDB extension", dateForValidation: "2026-03-01", gtfsInput: "feed", counts: { errors: 0, warnings: 0, infos: 0 } },
+    notices: [],
+  })
+})
+
 const VALIDATED_FILES = ["stops.txt", "pathways.txt", "routes.txt", "trips.txt", "stop_times.txt", "shapes.txt", "calendar.txt", "calendar_dates.txt"]
 
 // A zip holding `entries` ({ "<path in zip>": "<content>" }).
