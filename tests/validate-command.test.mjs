@@ -565,6 +565,35 @@ test("a directory whose path has *, ? or [ is validated through links, so DuckDB
   assert.equal((await env.invocations()).length, 1)
 })
 
+test("a zip whose path has *, ? or [ is read through a link with a plain name, so unzip never reads it as a pattern", async (t) => {
+  const env = await setup(t)
+  // unzip reads feed[1].zip as a pattern matching feed1.zip, and feed*.zip and feed?.zip as patterns
+  // matching themselves and feed1.zip, which it would read in turn. A \\ only escapes the next character,
+  // so feed\\1.zip is read as it is.
+  await writeRawZip(env.root, "feed1.zip", [
+    ["stops.txt", "stop_id\nDECOY\n"],
+    ["routes.txt", "route_id\nDECOY\n"],
+  ])
+  for (const name of ["feed[1].zip", "feed*.zip", "feed?.zip", "feed\\1.zip"]) {
+    const zipPath = await writeRawZip(env.root, name, [["stops.txt", "stop_id\nS1\n"]])
+    await env.respond()
+    const result = await env.cli("validate", zipPath)
+    assert.equal(result.code, 0, `${name}: ${result.stderr}`)
+    assert.equal(result.stderr, "", name)
+    assert.deepEqual((await env.invocations()).at(-1).files, { "stops.txt": "stop_id\nS1\n" }, name)
+    assert.deepEqual(await readdir(env.tmp), [], `${name}: the link's directory is removed`)
+    await rm(zipPath)
+  }
+  // unzip's messages name the zip, never the link.
+  const broken = path.join(env.root, "broken[1].zip")
+  await writeFile(broken, "not a zip")
+  const failed = await env.cli("validate", broken)
+  assert.equal(failed.code, 2)
+  assert.ok(failed.stderr.includes(broken), failed.stderr)
+  assert.ok(!failed.stderr.includes("gtfs-tools-zip-"), failed.stderr)
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
 test("an extraction stops past its byte limit, and resolves only once the file is written", async (t) => {
   const root = path.resolve(await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-zip-")))
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -579,6 +608,34 @@ test("an extraction stops past its byte limit, and resolves only once the file i
     extractZipEntry(zipPath, "stops.txt", path.join(root, "capped.txt"), 1000),
     (error) => error.name === "EntryTooLargeError" && error.entry === "stops.txt" && error.maxBytes === 1000,
   )
+})
+
+test("an entry whose name has *, ?, [, \\ or a leading - is extracted alone: unzip never reads it as a pattern or option", async (t) => {
+  const root = path.resolve(await mkdtemp(path.join(os.tmpdir(), "gtfs-tools-unzip-names-")))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const module = path.join(root, "zip.mjs")
+  await build({ entryPoints: [new URL("../src/feed/zip.ts", import.meta.url).pathname], outfile: module, bundle: true, platform: "node", format: "esm", target: "node18" })
+  const { extractZipEntry, listZipEntries } = await import(module)
+  // import reads stops.txt from a folder of the zip too: [a]/stops.txt would be read as a/stops.txt, and
+  // */routes.txt as every routes.txt in a folder, one after the other.
+  const entries = [
+    ["a/stops.txt", "a\n"],
+    ["[a]/stops.txt", "bracket\n"],
+    ["b/routes.txt", "b\n"],
+    ["*/routes.txt", "star\n"],
+    ["c/trips.txt", "c\n"],
+    ["?/trips.txt", "question\n"],
+    ["d\\calendar.txt", "backslash\n"],
+    // unzip reads an argument starting with -d as its extraction folder option.
+    ["-dx/stops.txt", "dash\n"],
+  ]
+  const zipPath = await writeRawZip(root, "folders.zip", entries)
+  assert.deepEqual(await listZipEntries(zipPath), entries.map(([name]) => name))
+  for (const [entry, content] of entries) {
+    const target = path.join(root, "out.txt")
+    assert.equal(await extractZipEntry(zipPath, entry, target), content.length, entry)
+    assert.equal(await readFile(target, "utf8"), content, entry)
+  }
 })
 
 test("a zip with two entries of the same name exits 2 without running DuckDB", async (t) => {

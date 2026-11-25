@@ -77,6 +77,38 @@ test("a downloaded feed that fails to import is deleted and leaves the dataset a
   assert.equal(await readFile(statePath, "utf8"), '{"previous":"dataset"}')
 })
 
+test("a local zip whose path has *, ? or [ is read through a link: unzip never reads another zip for it", async (t) => {
+  const env = await setup(t)
+  const statePath = path.join(env.dataRoot, "current", "state.json")
+  await mkdir(path.dirname(statePath), { recursive: true })
+  await writeFile(statePath, '{"previous":"dataset"}')
+  // nostops1.zip has a stops.txt. unzip reads nostops[1].zip as a pattern matching it, and nostops*.zip and
+  // nostops?.zip as patterns matching themselves and it: import would then replace the dataset with it.
+  const decoy = path.join(env.root, "decoy")
+  await mkdir(decoy)
+  await writeFile(path.join(decoy, "stops.txt"), "stop_id,stop_name,stop_lat,stop_lon\nDECOY,Decoy,40.0,-73.0\n")
+  const zipped = await run("zip", ["-j", "-q", path.join(env.root, "nostops1.zip"), path.join(decoy, "stops.txt")])
+  assert.equal(zipped.code, 0, zipped.stderr)
+  const bytes = await zipWithout(env.root, "plain.zip")
+  // The link's own directory may have such characters too: unzip only reads a path's last part as a pattern.
+  const patternTmp = path.join(env.root, "t*")
+  await mkdir(patternTmp)
+  for (const [name, tmp] of [
+    ["nostops[1].zip", path.join(env.root, "t")],
+    ["nostops*.zip", patternTmp],
+    ["nostops?.zip", path.join(env.root, "t")],
+  ]) {
+    const zipPath = path.join(env.root, name)
+    await writeFile(zipPath, bytes)
+    const result = await env.cli("import", zipPath, { TMPDIR: tmp })
+    assert.notEqual(result.code, 0, name)
+    assert.match(result.stderr, /GTFS zip is missing required stops\.txt/, `${name}: ${result.stderr}`)
+    assert.equal(await readFile(statePath, "utf8"), '{"previous":"dataset"}', name)
+    assert.deepEqual(await readdir(tmp), [], `${name}: the link's directory is removed`)
+    await rm(zipPath)
+  }
+})
+
 test("failure headers never show query strings or URL credentials", async (t) => {
   const env = await setup(t)
   // Refused sources are shown only by their scheme.

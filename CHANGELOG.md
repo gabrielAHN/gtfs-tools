@@ -26,6 +26,12 @@ Changed, Removed, Fixed and Security, and its GitHub release notes are that sect
   refused; one whose path has `*`, `?` or `[`, which DuckDB reads as a file pattern, is validated through
   links in a temporary directory.
 
+### Fixed
+- `import` reads a local zip whose name has `*`, `?` or `[` itself. `unzip` read such a name as a pattern of
+  zip names, so `feed[1].zip` read `feed1.zip`, and `feed*.zip` read every zip it matched, one after the
+  other. A GTFS file in a folder of the zip whose name has `*`, `?`, `[` or `\`, or starts with `-d`, is read
+  as that entry alone too (`unzip` read it as a pattern or as an option).
+
 ## [1.5.5] - 2026-11-05
 
 ### Changed
