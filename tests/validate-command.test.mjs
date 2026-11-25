@@ -333,6 +333,27 @@ test("--format csv with no notices prints only the header and exits 0", async (t
   })
 })
 
+test("an extension without gtfs_validate exits 2 with update guidance and never updates it itself", async (t) => {
+  const env = await setup(t)
+  const zipPath = await makeZip(env.root, "feed.zip", { "stops.txt": "stop_id\nS1\n" })
+  await env.respond({ stdout: "", stderr: 'Catalog Error: Pragma Function with name gtfs_validate does not exist!\nDid you mean "gtfs_import"?\n', exit: 1 })
+  const community = await env.cli("validate", zipPath)
+  assert.equal(community.code, 2, community.stderr)
+  assert.equal(community.stdout, "")
+  assert.ok(community.stderr.startsWith("Validation failed: feed.zip\n"), community.stderr)
+  assert.match(community.stderr, /gtfs extension 1\.1\.0 or later/)
+  assert.ok(community.stderr.includes('duckdb -c "UPDATE EXTENSIONS (gtfs)"'), community.stderr)
+  assert.match(community.stderr, /never run automatically/)
+  const custom = await env.cli("validate", zipPath, { GTFS_EXTENSION_REPOSITORY: "http://127.0.0.1:9/repo" })
+  assert.equal(custom.code, 2, custom.stderr)
+  assert.match(custom.stderr, /gtfs extension 1\.1\.0 or later/)
+  assert.ok(custom.stderr.includes("http://127.0.0.1:9/repo"), custom.stderr)
+  const invocations = await env.invocations()
+  assert.equal(invocations.length, 2, "one DuckDB run per validation, nothing more")
+  for (const { argv } of invocations) assert.doesNotMatch(argv.join("\n"), /UPDATE EXTENSIONS|FORCE INSTALL/)
+  assert.deepEqual(await readdir(env.tmp), [])
+})
+
 const VALIDATED_FILES = ["stops.txt", "pathways.txt", "routes.txt", "trips.txt", "stop_times.txt", "shapes.txt", "calendar.txt", "calendar_dates.txt"]
 
 // A zip holding `entries` ({ "<path in zip>": "<content>" }).

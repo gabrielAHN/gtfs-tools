@@ -58,6 +58,17 @@ const isCalendarDate = (value: string) => {
 
 const sqlString = (value: string) => `'${value.replaceAll("'", "''")}'`;
 
+// What DuckDB says when the loaded gtfs extension predates gtfs_validate (1.0.x).
+const MISSING_PRAGMA = /Pragma Function with name gtfs_validate does not exist/;
+
+const tooOldExtension = (repository: string, cause: unknown) =>
+  new Error(
+    repository === "community"
+      ? 'The loaded gtfs extension has no gtfs_validate: validation needs the gtfs extension 1.1.0 or later. Update it from the DuckDB community repository with duckdb -c "UPDATE EXTENSIONS (gtfs)". UPDATE EXTENSIONS and FORCE INSTALL are never run automatically.'
+      : `The loaded gtfs extension has no gtfs_validate: validation needs the gtfs extension 1.1.0 or later. gtfs installs from ${repository} (GTFS_EXTENSION_REPOSITORY): install gtfs 1.1.0 or later from it. UPDATE EXTENSIONS and FORCE INSTALL are never run automatically.`,
+    { cause },
+  );
+
 // PRAGMA gtfs_validate, then its notices, in one in-memory DuckDB with the gtfs extension loaded.
 const runValidation = async (directory: string, date: string): Promise<ValidationResult> => {
   const { repository, args } = await defaultExtensionStartup();
@@ -66,7 +77,13 @@ const runValidation = async (directory: string, date: string): Promise<Validatio
     `PRAGMA gtfs_validate(${sqlString(directory)}, ${sqlString(date)});`,
     "SELECT code, severity, filename, csv_row_number, notice::VARCHAR AS notice FROM gtfs_validation_notices ORDER BY code, filename NULLS FIRST, csv_row_number NULLS FIRST;",
   ].join("\n");
-  const { stdout } = await runDuckDb(["-bail", "-json", ...args, ":memory:", "-c", sql], repository);
+  let stdout: string;
+  try {
+    ({ stdout } = await runDuckDb(["-bail", "-json", ...args, ":memory:", "-c", sql], repository));
+  } catch (error) {
+    if (error instanceof Error && MISSING_PRAGMA.test(error.message)) throw tooOldExtension(repository, error);
+    throw error;
+  }
   return parseValidationOutput(stdout);
 };
 
