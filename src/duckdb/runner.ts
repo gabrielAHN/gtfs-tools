@@ -21,14 +21,19 @@ export const getNativeExtensionRepository = async (dbPath: string): Promise<stri
 
 // The repository in use and the -cmd startup args that install and load gtfs from it. Building the
 // client validates the repository: "community" or an http(s) URL without credentials or query.
-const extensionStartup = async (dbPath: string) => {
-  const repository = await getNativeExtensionRepository(dbPath);
+const repositoryStartup = async (repository: string) => {
   const args: string[] = [];
   const client = createExtensionClient({ query: async sql => { args.push("-cmd", sql); } }, { repository });
   await client.install();
   await client.load();
   return { repository, args };
 };
+
+const extensionStartup = async (dbPath: string) => repositoryStartup(await getNativeExtensionRepository(dbPath));
+
+// The same startup for a run with no dataset, such as validation (no <db>.extension.json exists):
+// GTFS_EXTENSION_REPOSITORY, then community.
+export const defaultExtensionStartup = () => repositoryStartup(process.env.GTFS_EXTENSION_REPOSITORY || "community");
 
 export const extensionStartupArgs = async (dbPath: string): Promise<string[]> =>
   (await extensionStartup(dbPath)).args;
